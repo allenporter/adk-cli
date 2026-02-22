@@ -5,7 +5,7 @@ from textwrap import dedent
 
 import pytest
 
-from adk_cli.skills import build_skills_instruction, discover_skills, load_skill
+from adk_cli.skills import discover_skills, load_skill_from_dir
 
 
 # ---------------------------------------------------------------------------
@@ -49,62 +49,48 @@ def workspace(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_load_skill_valid() -> None:
-    """load_skill returns a Skill with correct name, description, and instructions."""
-    from pathlib import Path
-    import tempfile
+# ---------------------------------------------------------------------------
 
-    with tempfile.TemporaryDirectory() as d:
-        skill_md = Path(d) / "SKILL.md"
-        skill_md.write_text(
-            dedent("""\
-                ---
-                name: my-skill
-                description: Does something useful.
-                ---
 
-                # Instructions
-
-                Follow these steps.
-            """),
-            encoding="utf-8",
-        )
-        skill = load_skill(skill_md)
+def test_load_skill_valid(workspace: Path) -> None:
+    """load_skill_from_dir returns a Skill with correct name, description, and instructions."""
+    skill_md = _make_skill(workspace, "my-skill")
+    skill = load_skill_from_dir(skill_md)
 
     assert skill is not None
     assert skill.name == "my-skill"
-    assert skill.description == "Does something useful."
-    assert "Follow these steps." in skill.instructions
+    assert skill.description == "Description of my-skill."
+    assert "Some instructions here." in skill.instructions
 
 
 def test_load_skill_missing_name_returns_none(tmp_path: Path) -> None:
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("---\ndescription: Missing name.\n---\nBody.", encoding="utf-8")
-    assert load_skill(skill_md) is None
+    assert load_skill_from_dir(skill_md) is None
 
 
 def test_load_skill_missing_description_returns_none(tmp_path: Path) -> None:
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("---\nname: no-desc\n---\nBody.", encoding="utf-8")
-    assert load_skill(skill_md) is None
+    assert load_skill_from_dir(skill_md) is None
 
 
 def test_load_skill_invalid_yaml_returns_none(tmp_path: Path) -> None:
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("---\n: bad: yaml: [\n---\nBody.", encoding="utf-8")
-    assert load_skill(skill_md) is None
+    assert load_skill_from_dir(skill_md) is None
 
 
 def test_load_skill_missing_file_returns_none(tmp_path: Path) -> None:
     missing = tmp_path / "does_not_exist" / "SKILL.md"
-    assert load_skill(missing) is None
+    assert load_skill_from_dir(missing) is None
 
 
 def test_load_skill_no_frontmatter_returns_none(tmp_path: Path) -> None:
     """A file without --- delimiters has no name/description, so returns None."""
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("Just some markdown without frontmatter.", encoding="utf-8")
-    assert load_skill(skill_md) is None
+    assert load_skill_from_dir(skill_md) is None
 
 
 def test_load_skill_optional_fields(tmp_path: Path) -> None:
@@ -122,7 +108,7 @@ def test_load_skill_optional_fields(tmp_path: Path) -> None:
         """),
         encoding="utf-8",
     )
-    skill = load_skill(skill_md)
+    skill = load_skill_from_dir(skill_md)
     assert skill is not None
     assert skill.frontmatter.license == "Apache-2.0"
     assert skill.frontmatter.compatibility == ">=1.0"
@@ -207,35 +193,3 @@ def test_discover_skills_defaults_to_cwd(
     monkeypatch.chdir(workspace)
     skills = discover_skills()
     assert any(s.name == "cwd-skill" for s in skills)
-
-
-# ---------------------------------------------------------------------------
-# build_skills_instruction
-# ---------------------------------------------------------------------------
-
-
-def test_build_skills_instruction_empty_list() -> None:
-    assert build_skills_instruction([]) == ""
-
-
-def test_build_skills_instruction_contains_xml_block(workspace: Path) -> None:
-    _make_skill(workspace, "my-skill")
-    skills = discover_skills(workspace)
-    instruction = build_skills_instruction(skills)
-    assert "<available_skills>" in instruction
-    assert "my-skill" in instruction
-
-
-def test_build_skills_instruction_contains_skill_body(workspace: Path) -> None:
-    _make_skill(workspace, "my-skill")
-    skills = discover_skills(workspace)
-    instruction = build_skills_instruction(skills)
-    assert "Some instructions here." in instruction
-
-
-def test_build_skills_instruction_multiple_skills(workspace: Path) -> None:
-    for dir_name in [".agent", ".agents"]:
-        _make_skill(workspace, f"skill-{dir_name.lstrip('_.')}", dir_name=dir_name)
-    skills = discover_skills(workspace)
-    instruction = build_skills_instruction(skills)
-    assert instruction.count("<skill>") == len(skills)

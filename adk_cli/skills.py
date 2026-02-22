@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from google.adk.skills import Frontmatter, Resources, Skill, format_skills_as_xml
+from google.adk.skills import Frontmatter, Resources, Skill
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,8 @@ SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude"]
 _WORKSPACE_ROOT_MARKERS = [".git", "pyproject.toml", "package.json", "setup.py"]
 
 
-def load_skill(skill_md_path: Path) -> Optional[Skill]:
+# TODO: Remove this once google-adk provides `load_skill_from_dir` natively (added in google/adk-python@223d9a7)
+def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
     """Load a single skill from a SKILL.md file.
 
     Args:
@@ -138,7 +139,7 @@ def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
                 skill_md = skill_folder / "SKILL.md"
                 if not skill_md.is_file():
                     continue
-                skill = load_skill(skill_md)
+                skill = load_skill_from_dir(skill_md)
                 if skill is None:
                     continue
                 if skill.name in seen_names:
@@ -151,35 +152,3 @@ def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
                 logger.debug("Loaded skill '%s' from %s", skill.name, skill_md)
 
     return skills
-
-
-def build_skills_instruction(skills: list[Skill]) -> str:
-    """Build a system prompt snippet from a list of skills.
-
-    Produces an XML block listing available skills (for discovery), followed
-    by the full instructions of each skill.
-
-    Args:
-        skills: List of Skill objects to include.
-
-    Returns:
-        A formatted string suitable for inclusion in the agent's instruction.
-    """
-    if not skills:
-        return ""
-
-    frontmatters = [s.frontmatter for s in skills]
-    xml_block = format_skills_as_xml(frontmatters)
-
-    instruction_blocks = []
-    for skill in skills:
-        instruction_blocks.append(f"## Skill: {skill.name}\n\n{skill.instructions}")
-
-    full_instructions = "\n\n".join(instruction_blocks)
-
-    return (
-        "# Available Skills\n\n"
-        f"{xml_block}\n\n"
-        "# Skill Instructions\n\n"
-        f"{full_instructions}"
-    )

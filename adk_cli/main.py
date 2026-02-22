@@ -11,11 +11,12 @@ from google.genai import types
 from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.adk.tools.skill_toolset import SkillToolset
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
 from adk_cli.tui import AdkTuiApp
 from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
-from adk_cli.skills import discover_skills, build_skills_instruction
+from adk_cli.skills import discover_skills
 
 logger = logging.getLogger(__name__)
 
@@ -214,14 +215,16 @@ def _build_runner(ctx: click.Context) -> Runner:
     skills = discover_skills(Path.cwd())
     if skills:
         logger.debug("Loaded %d skill(s): %s", len(skills), [s.name for s in skills])
-    skills_instruction = build_skills_instruction(skills)
 
-    # Build the agent with the discovered skills injected into the instruction.
+    tools: list[Any] = get_essential_tools()
+    if skills:
+        tools.append(SkillToolset(skills))
+
+    # Build the agent
     agent = LlmAgent(
         name="adk_cli_agent",
         model=DEFAULT_MODEL,
-        instruction=skills_instruction,
-        tools=get_essential_tools(),
+        tools=tools,
     )
 
     return Runner(
