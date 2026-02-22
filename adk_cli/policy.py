@@ -171,6 +171,8 @@ class SecurityPlugin(BasePlugin):
             if approved:
                 return None  # Approved! Continue execution!
             else:
-                return {"error": f"Confirmation required: {result.reason}"}
+                return {
+                    "error": f"User denied execution of {tool.name}. Do not retry this exact tool call without asking the user for clarification or modifying the arguments."
+                }
 
         return None

@@ -56,7 +56,7 @@ async def test_policy_ask_mode_sensitive(
     )
 
     assert result is not None
-    assert "Confirmation required" in result["error"]
+    assert "User denied execution" in result["error"]
     # Check if request_confirmation was called on tool_context
     mock_tool_context.request_confirmation.assert_called_once()
 
@@ -113,4 +113,4 @@ async def test_policy_safe_bash_command(mock_tool_context: MagicMock) -> None:
         tool_context=mock_tool_context,
     )
     assert result is not None
-    assert "Confirmation required" in result["error"]
+    assert "User denied execution" in result["error"]
