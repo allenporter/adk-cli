@@ -10,3 +10,6 @@ ruff==0.8.1
 
 # Project dependencies
 google-adk==1.25.1
+click>=8.1.7
+rich>=13.7.0
+textual>=0.47.1
