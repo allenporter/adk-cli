@@ -25,7 +25,7 @@ dependencies = [
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=6.0.0",
-    "mypy>=1.13.0",
+    "ty>=0.0.18",
     "ruff>=0.8.1",
     "pre-commit>=4.0.1",
     "coverage>=7.13.4",
@@ -41,33 +41,7 @@ Source = "https://github.com/allenporter/adk_cli"
 [tool.setuptools.packages.find]
 include = ["adk_cli*"]
 
-[tool.mypy]
-exclude = [
-  "venv/",
-  ".venv/",
-]
-platform = "linux"
-show_error_codes = true
-follow_imports = "normal"
-local_partial_types = true
-strict_equality = true
-no_implicit_optional = true
-warn_incomplete_stub = true
-warn_redundant_casts = true
-warn_unused_configs = true
-warn_unused_ignores = true
-disable_error_code = [
-    "import-untyped",
-]
-extra_checks = false
-check_untyped_defs = true
-disallow_incomplete_defs = true
-disallow_subclassing_any = true
-disallow_untyped_calls = true
-disallow_untyped_decorators = true
-disallow_untyped_defs = true
-warn_return_any = true
-warn_unreachable = true
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

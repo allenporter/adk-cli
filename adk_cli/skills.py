@@ -115,7 +115,7 @@ def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
         for marker in _WORKSPACE_ROOT_MARKERS:
             if (current / marker).exists():
                 # Found a root marker — include this dir but go no further.
-                current = None  # type: ignore[assignment]
+                current = None
                 break
         if current is None:
             break

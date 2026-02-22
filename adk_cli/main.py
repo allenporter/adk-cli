@@ -4,6 +4,7 @@ import click
 from click import Command
 from typing import Optional, List, Any
 import logging
+from pathlib import Path
 
 from google.genai import types
 
@@ -226,7 +227,7 @@ def _build_runner(ctx: click.Context) -> Runner:
     return Runner(
         app_name="adk-cli",
         agent=agent,
-        session_service=InMemorySessionService(),  # type: ignore[no-untyped-call]
+        session_service=InMemorySessionService(),
         plugins=[security_plugin],
         auto_create_session=True,
     )

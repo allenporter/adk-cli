@@ -22,7 +22,7 @@ class Message(Static):
         return Markdown(f"### {prefix}\n\n{self.text}")
 
 
-class ChatScreen(Screen):  # type: ignore[type-arg]
+class ChatScreen(Screen):
     """The main chat interface screen."""
 
     CSS = """
@@ -167,7 +167,7 @@ class ChatScreen(Screen):  # type: ignore[type-arg]
         self.run_worker(self.process_query(text))
 
 
-class AdkTuiApp(App):  # type: ignore[type-arg]
+class AdkTuiApp(App):
     """The main TUI for adk-cli."""
 
     BINDINGS = [Binding("ctrl+c", "quit", "Quit", show=False)]
