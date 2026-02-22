@@ -70,6 +70,8 @@ def setup_logging(verbose: bool) -> None:
         filename=log_file,
         filemode="a",
     )
+    # Suppress noisy external libraries even in verbose mode
+    logging.getLogger("markdown_it").setLevel(logging.WARNING)
     if verbose:
         logger.info("Logging initialized at DEBUG level.")
 
