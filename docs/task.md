@@ -11,7 +11,7 @@
 ## Phase 1: Bootstrapping MVP
 - [ ] Core Orchestration
     - [ ] Create basic ADK Runner wrapper
-    - [ ] Implement simple CLI entry point (yargs/commander)
+    - [ ] Implement simple CLI entry point (click/argparse)
 - [ ] Essential Tools
     - [ ] Port `read_file`
     - [ ] Port `write_file`

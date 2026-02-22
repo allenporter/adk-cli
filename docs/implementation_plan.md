@@ -5,9 +5,9 @@ This document provides a high-level overview of the `adk-cli` architecture, deri
 ## Modular Documentation
 To keep the project manageable, the specific implementation details are split across several documents:
 
-1. [High-Level Architecture & Strategy](file:///Users/allen/Development/adk-cli-2/docs/implementation_plan.md) (This document)
-2. [Bootstrapping MVP Plan](file:///Users/allen/Development/adk-cli-2/docs/bootstrapping_plan.md): The minimal path to a self-building CLI.
-3. [Task Tracking](file:///Users/allen/Development/adk-cli-2/docs/task.md): Current development progress and roadmap.
+1. [High-Level Architecture & Strategy](implementation_plan.md) (This document)
+2. [Bootstrapping MVP Plan](bootstrapping_plan.md): The minimal path to a self-building CLI.
+3. [Task Tracking](task.md): Current development progress and roadmap.
 
 ---
 
