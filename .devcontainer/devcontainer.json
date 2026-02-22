@@ -11,7 +11,7 @@
       "extensions": [
         "ms-python.python",
         "github.vscode-pull-request-github",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
         "charliermarsh.ruff"
       ],
       "settings": {
