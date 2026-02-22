@@ -72,27 +72,44 @@ class ConfirmationModal(ModalScreen[bool]):
 class Message(Static):
     """A widget to display a chat message."""
 
-    text = reactive("", layout=True)
+    # layout=False (default) avoids an expensive full layout pass on every token.
+    text = reactive("")
 
     def __init__(self, text: str, role: str):
         super().__init__()
         self.role = role
+        self._streaming = False
         self.text = text
         self.add_class(role)
 
-    def watch_text(self, old_text: str, new_text: str) -> None:
-        """Trigger a refresh when the text changes."""
-        # Using self.update here ensures the Static widget's internal state
-        # is correctly updated with the new renderable.
-        self.update(self.render())
+    def start_streaming(self) -> None:
+        """Switch to cheap plain-text rendering while tokens are arriving."""
+        self._streaming = True
 
-    def render(self) -> Markdown:
+    def finish_streaming(self) -> None:
+        """Stream is done — do one final markdown render."""
+        self._streaming = False
+        self.update(self._markdown_renderable())
+
+    def _markdown_renderable(self) -> Markdown:
+        """Build the full Markdown renderable (used once, when streaming ends)."""
         if self.role == "status":
             return Markdown(f"*💭 {self.text}*")
-
         prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
-        # Always ensure a double newline for clear markdown separation
         return Markdown(f"### {prefix}\n\n{self.text}")
+
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        """Trigger a refresh when the text changes."""
+        if self._streaming:
+            # Skip markdown parsing while tokens are streaming in — just show
+            # plain text so we avoid O(n) re-parsing on every token delta.
+            prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
+            self.update(f"{prefix}\n\n{new_text}")
+        else:
+            self.update(self._markdown_renderable())
+
+    def render(self) -> Markdown:
+        return self._markdown_renderable()
 
 
 class ChatScreen(Screen):
@@ -235,10 +252,13 @@ class ChatScreen(Screen):
                             if current_agent_message is None:
                                 logger.debug("Initializing new agent message bubble")
                                 current_agent_message = Message("", role="agent")
+                                current_agent_message.start_streaming()
                                 await chat_scroll.mount(current_agent_message)
 
                             current_agent_message.text += part.text
-                            chat_scroll.scroll_end()
+                    # Scroll once per event, not per individual text part.
+                    if current_agent_message is not None:
+                        chat_scroll.scroll_end()
 
                 if event.get_function_calls():
                     # If we have an active agent message, "close" it to ensure the tool call
@@ -247,6 +267,7 @@ class ChatScreen(Screen):
                         logger.debug(
                             "Closing current agent message bubble before tool call"
                         )
+                        current_agent_message.finish_streaming()
                         current_agent_message = None
 
                     for call in event.get_function_calls():
@@ -265,6 +286,9 @@ class ChatScreen(Screen):
                         chat_scroll.scroll_end()
 
             logger.debug("--- [Query Finished Successfully] ---")
+            # Finalise the last agent message bubble with a proper markdown render.
+            if current_agent_message is not None:
+                current_agent_message.finish_streaming()
             # Final scroll to ensure everything is visible after all mount events settle
             chat_scroll.scroll_end()
         except Exception as e:
