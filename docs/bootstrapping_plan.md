@@ -23,20 +23,20 @@ The goal of this MVP is to create a functional CLI that can orchestrate a `googl
 
 ### 4. Essential Toolset
 We need to implement/port the following tools to the CLI's internal agent:
-- `read_file`: Use ADK's file tools.
-- `write_file`: Use ADK's file tools.
-- `edit_file`: Patch-based approach for direct file modification.
+- [x] `read_file`: Implemented as `cat` with chunking support.
+- [x] `write_file`: Basic file creation and overwrite.
+- [x] `edit_file`: Patch-based approach for direct file modification.
 - [x] **`bash` (or `shell`)**: Command execution with security guards.
     - Supports `stdout` and `stderr` capture.
     - Implements output summarization (max ~10k chars) to prevent context blowouts.
     - Integrated with `CustomPolicyEngine` for per-command user approval.
     - Support for `cwd` (current working directory) and simple background execution.
-- `ls`/`find`: Generic file and directory discovery.
+- [x] `ls`/`grep`: Generic file discovery and content searching.
 
 ### 5. Persistence & Context
-- [ ] Session persistence (beyond in-memory).
-- [ ] Short ID project mapping for workspace context.
-- [ ] Global/Local settings management.
+- [x] Session persistence (SQLite-based).
+- [x] Short ID project mapping for workspace context.
+- [ ] Global/Local settings management (In progress: basic file storage implemented).
 
 ## Verification Plan
 
