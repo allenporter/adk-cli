@@ -272,6 +272,18 @@ class ChatScreen(Screen):
 
                     for call in event.get_function_calls():
                         logger.debug(f"Requesting function call execution: {call.name}")
+
+                        # ADK emits an internal confirmation function call when
+                        # tool_context.request_confirmation() is used. Since the
+                        # ConfirmationModal already provides the UI for this interaction,
+                        # skip the generic "🛠️ Executing:" bubble for these calls to
+                        # avoid showing a confusing duplicate/internal message.
+                        if call.name == "adk_request_confirmation":
+                            logger.debug(
+                                f"Skipping display of ADK confirmation call: {call.name}"
+                            )
+                            continue
+
                         args = call.args or {}
                         args_str = (
                             ", ".join(f"{k}={v!r}" for k, v in args.items())

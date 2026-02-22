@@ -186,6 +186,11 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                     logger.debug(
                         f"Sync Requesting function call execution: {call.name}"
                     )
+                    if call.name == "adk_request_confirmation":
+                        logger.debug(
+                            f"Skipping display of ADK confirmation call: {call.name}"
+                        )
+                        continue
                     args = call.args or {}
                     args_str = (
                         ", ".join(f"{k}={v!r}" for k, v in args.items())
