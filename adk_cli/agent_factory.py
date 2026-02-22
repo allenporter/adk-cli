@@ -14,6 +14,17 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
+SUPERVISOR_INSTRUCTION = """\
+You are an expert AI software engineer and the primary supervisor for this adk-cli session.
+Your goal is to help the user manage, explore, and modify their codebase efficiently and safely.
+
+Guidelines:
+- **Think First**: Use your internal reasoning (BuiltInPlanner) to plan your actions.
+- **Use Specialized Skills**: For complex tasks like feature development, architecture changes, or deep exploration, prefer using the relevant 'Skill' (e.g., `feature-dev`).
+- **Safety**: Always ask for confirmation before executing potentially destructive shell commands (via `bash`) or making large-scale file edits.
+- **Precision**: When editing files, ensure you have read the relevant sections first to maintain project style and logic.
+"""
+
 _NO_KEY_MESSAGE = """\
 Error: No Gemini API key found.
 
@@ -36,9 +47,14 @@ def _resolve_api_key() -> Optional[str]:
     return load_api_key()
 
 
-def build_adk_agent(model: str | None = None) -> Any:
-    """Builds and returns the main LlmAgent for adk-cli."""
-    # Defer loading of heavy SDK libraries
+def build_adk_agent(
+    model: str | None = None,
+    instruction: str | None = None,
+    tool_names: list[str] | None = None,
+    include_skills: bool = True,
+    agent_name: str = "adk_cli_agent",
+) -> Any:
+    """Builds and returns an LlmAgent for adk-cli."""
     from adk_cli.skills import discover_skills
     from adk_cli.tools import get_essential_tools
     from adk_cli.retry_gemini import AdkRetryGemini
@@ -46,33 +62,43 @@ def build_adk_agent(model: str | None = None) -> Any:
     from google.adk.tools.skill_toolset import SkillToolset
     from google.genai import types
 
-    # Discover skills and inject into instructions
-    skills = discover_skills(Path.cwd())
-    if skills:
-        logger.debug("Loaded %d skill(s): %s", len(skills), [s.name for s in skills])
-
-    tools: list[Any] = get_essential_tools()
-    if skills:
-        tools.append(SkillToolset(skills))
-
-    # Build the agent
-    retry_options = types.HttpRetryOptions(
-        attempts=1,  # Our custom wrapper handles the retries
-        http_status_codes=[],
-    )
-
+    # Defer loading of model settings
     if model is None:
         settings = load_settings(find_project_root())
-        model = settings.get("default_model")
+        model = settings.get("default_model") or DEFAULT_MODEL
 
-    llm_model = AdkRetryGemini(
-        model=model or DEFAULT_MODEL, retry_options=retry_options
+    retry_options = types.HttpRetryOptions(attempts=1, http_status_codes=[])
+    llm_model = AdkRetryGemini(model=model, retry_options=retry_options)
+
+    # Collect and filter tools
+    all_essential_tools = get_essential_tools()
+    if tool_names:
+        tools = [t for t in all_essential_tools if getattr(t, "name", "") in tool_names]
+    else:
+        tools = all_essential_tools
+
+    if include_skills:
+        skills = discover_skills(Path.cwd())
+        if skills:
+            tools.append(SkillToolset(skills))
+
+    # Construct the planner with thinking config
+    from google.adk.planners import BuiltInPlanner
+
+    planner = BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(
+            include_thoughts=True,
+            thinking_budget=1024 if agent_name == "adk_cli_agent" else 512,
+        )
     )
 
+    # Initialize the LlmAgent directly
     return LlmAgent(
-        name="adk_cli_agent",
-        model=llm_model,
+        name=agent_name,
+        instruction=instruction or SUPERVISOR_INSTRUCTION,
         tools=tools,
+        model=llm_model,
+        planner=planner,
     )
 
 

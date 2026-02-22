@@ -91,9 +91,11 @@ Complex tasks should be broken down into discrete phases (Discovery -> Explorati
 
 ### 2. Specialized Personnel (Sub-Agents)
 The use of specialized persona-based agents (`code-explorer`, `code-architect`, `code-reviewer`) can be mapped directly to `google-adk` skills. This allows defining distinct system prompts and tool restrictions for different phases of the development lifecycle.
+- **Update (Phase 2)**: The `feature-dev` skill has been implemented, formalizing these personas as sub-agents. Observations include the need for careful context management when running multiple parallel reviewers and ensuring the `manage_todo_list` tool is robust enough to support multi-phase orchestration.
 
 ### 3. Pre-Tool Validation (Hooks)
 Extending the `SecurityPlugin` to support external validation scripts (like `claude-code`'s hooks). These scripts can intercept tool calls to enforce project-specific safety rules or suggest better tool alternatives (e.g., suggesting `ripgrep` over `grep`).
+- **Observation**: Highly specialized reviewers (like the `code-reviewer` in `feature-dev`) use confidence scoring (0-100) to filter noise. This pattern should be encouraged across all validation-focused skills.
 
 ### 4. Interactive Ambiguity Resolution
 Explicitly pausing execution when ambiguities are found during the "Discovery" phase. This "Clarification Loop" ensures that requirements are fully understood before any sensitive operations are performed.

@@ -14,7 +14,8 @@ This project is inspired by several leading agentic coding tools:
 - **Interactive TUI**: A rich, responsive chat interface built with [Textual](https://textual.textualize.io/).
 - **Filesystem Tools**: Built-in capabilities to `ls`, `cat`, `grep`, `write`, and `edit` files.
 - **Shell Integration**: Execute bash commands with user-approved security guards.
-- **Skill System**: Extensible via Markdown-based "Skills" that define custom instructions and tool usage.
+- **Skill System**: Extensible via Markdown-based "Skills" that define custom instructions and tool usage. Includes high-level orchestration like `feature-dev` for guided software engineering.
+- **Multi-Agent Orchestration**: Specialized sub-agents (`code-explorer`, `code-architect`, `code-reviewer`) can be launched to handle specific phases of a task without polluting the main conversation context.
 - **Persistent Sessions**: Automatically remembers project context and chat history using SQLite.
 - **Security First**: Granular permission modes (`ask`, `auto`, `plan`) to control tool execution.
 - **Project Awareness**: Automatically maps workspace roots to unique IDs for isolated session management.

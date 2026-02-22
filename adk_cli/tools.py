@@ -258,6 +258,172 @@ def bash(command: str, cwd: str = ".") -> str:
         return f"Error executing command: {str(e)}"
 
 
+def _get_agent_metadata(agent_name: str) -> dict[str, Any]:
+    """Helper to load a specialized agent metadata from its Markdown file."""
+    from pathlib import Path
+    import yaml
+
+    # Try finding the artifact in the feature-dev builtin skill first
+    builtin_agent_path = (
+        Path(__file__).parent
+        / "skills"
+        / "builtin"
+        / "feature-dev"
+        / "agents"
+        / f"{agent_name}.md"
+    )
+
+    if builtin_agent_path.is_file():
+        try:
+            content = builtin_agent_path.read_text(encoding="utf-8")
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    metadata = yaml.safe_load(parts[1])
+                    metadata["instruction"] = parts[2].strip()
+                    return metadata
+            return {"instruction": content.strip()}
+        except Exception:
+            pass
+
+    return {}
+
+
+def _run_subagent_task(
+    prompt: str, agent_name: str = "adk_subagent", fallback_instruction: str = ""
+) -> str:
+    """Internal helper to run a sub-agent with a specific instruction and toolset."""
+    from google.adk.runners import Runner
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    from google.genai import types
+    from adk_cli.agent_factory import build_adk_agent
+
+    # Load metadata from Markdown if available
+    metadata = _get_agent_metadata(agent_name)
+    instruction = metadata.get("instruction") or fallback_instruction
+    tool_names = metadata.get("allowed_tools")
+    include_skills = metadata.get("include_skills", False)
+
+    # Build a fresh agent configuration
+    agent = build_adk_agent(
+        instruction=instruction,
+        tool_names=tool_names,
+        include_skills=include_skills,
+        agent_name=agent_name,
+    )
+
+    session_service = InMemorySessionService()
+    runner = Runner(
+        agent=agent,
+        app_name=f"adk_{agent_name}",
+        session_service=session_service,
+        auto_create_session=True,
+    )
+
+    content = types.Content(role="user", parts=[types.Part(text=prompt)])
+
+    try:
+        events = runner.run(
+            user_id="subagent", session_id="subsession", new_message=content
+        )
+        report = []
+        for event in events:
+            if event.is_final_response() and event.content and event.content.parts:
+                report.append(event.content.parts[0].text)
+
+        return "\n".join(report) if report else "Subagent failed to return a report."
+    except Exception as e:
+        return f"Error in subagent: {str(e)}"
+
+
+def explore_codebase(task: str) -> str:
+    """
+    Spawns a specialized Discovery Agent to map out the architecture or find
+    specific logic. Use this for 'Where is X defined?' or 'How does Y work?'.
+
+    This agent is restricted to read-only tools and is optimized for searching
+    large amounts of data without cluttering the main conversation.
+    """
+    fallback_instruction = (
+        "You are a specialized Code Discovery Agent. Your goal is to explore "
+        "the codebase and answer the user's architectural questions. "
+        "Use `ls`, `grep`, and `cat` to find definitions, patterns, and "
+        "relationships. Return a concise summary of your findings."
+    )
+
+    # Note: tools and instruction are now loaded from Markdown if available
+    return _run_subagent_task(
+        task, agent_name="code-explorer", fallback_instruction=fallback_instruction
+    )
+
+
+def review_work(original_goal: str) -> str:
+    """
+    Spawns a specialized Code Reviewer to audit the current state of the
+    files against the user's initial request.
+
+    Use this before finishing a task to ensure no bugs or security flaws
+    were introduced. Return a list of 'Critical Issues' and 'Suggestions'.
+    """
+    fallback_instruction = (
+        "You are a Senior Code Reviewer. Audit the changes in the current "
+        "directory against the user's original goal. Look for bugs, "
+        "security flaws, and inconsistencies. Be critical and objective. "
+        "Format your output as: \n### Critical Issues\n...\n### Suggestions\n..."
+    )
+
+    # Reviewer needs discovery tools and bash to run tests/checks
+    return _run_subagent_task(
+        f"Review the current changes against this goal: {original_goal}",
+        agent_name="code-reviewer",
+        fallback_instruction=fallback_instruction,
+    )
+
+
+def design_architecture(task: str) -> str:
+    """
+    Spawns a specialized Architecture Agent to design implementation blueprints.
+    Use this to get detailed file-by-file plans, component responsibilities,
+    and build sequences.
+    """
+    fallback_instruction = (
+        "You are a specialized Code Architect. Your goal is to design "
+        "comprehensive implementation blueprints. Specify every file to "
+        "create or modify, component responsibilities, and data flow."
+    )
+
+    # Architect needs discovery tools to understand patterns
+    return _run_subagent_task(
+        task, agent_name="code-architect", fallback_instruction=fallback_instruction
+    )
+
+
+def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
+    """
+    Update the session's structured todo list to track progress and plan tasks.
+    Each todo should have 'id' (int), 'title' (str), and 'status' (not-started, in-progress, completed).
+    Limit 'in-progress' to 1 at a time.
+    Returns: A summary of the current todo list with visual indicators.
+    """
+    formatted = []
+    status_map = {
+        "not-started": "[ ]",
+        "in-progress": "[>]",
+        "completed": "[x]",
+    }
+
+    for item in todo_list:
+        status_icon = status_map.get(item.get("status", "not-started"), "?")
+        status_icon = status_icon.ljust(3)
+        formatted.append(
+            f"{status_icon} {item.get('id', '?')}: {item.get('title', '???')}"
+        )
+
+    # No real persistence required here as the Supervisor agent's history
+    # manages the state through tool calls.
+    return "Todo list updated:\n" + "\n".join(formatted)
+
+
 def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
     """
     Returns a list of FunctionTool instances for essential filesystem operations.
@@ -270,4 +436,8 @@ def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
         FunctionTool(edit_file),
         FunctionTool(grep),
         FunctionTool(bash),
+        FunctionTool(explore_codebase),
+        FunctionTool(design_architecture),
+        FunctionTool(review_work),
+        FunctionTool(manage_todo_list),
     ]
