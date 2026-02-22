@@ -403,6 +403,10 @@ def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     Update the session's structured todo list to track progress and plan tasks.
     Each todo should have 'id' (int), 'title' (str), and 'status' (not-started, in-progress, completed).
     Limit 'in-progress' to 1 at a time.
+
+    Note: The todo list is part of the session's ephemeral state and is not
+    persisted across different sessions or to external files.
+
     Returns: A summary of the current todo list with visual indicators.
     """
     formatted = []
@@ -424,6 +428,23 @@ def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     return "Todo list updated:\n" + "\n".join(formatted)
 
 
+def run_subagent(task: str, agent_name: str = "adk_subagent") -> str:
+    """
+    Spawns a specialized sub-agent to handle a specific task.
+    This is useful for delegating complex sub-tasks or exploring parts of the codebase
+    without losing the main conversation context.
+
+    The sub-agent will have its own session and toolset based on its name/type.
+
+    Args:
+        task: The specific task or question for the sub-agent to address.
+        agent_name: The identifier for the sub-agent. This determines its
+                   instruction set and available tools (e.g., 'code-explorer',
+                   'code-architect', 'code-reviewer').
+    """
+    return _run_subagent_task(task, agent_name=agent_name)
+
+
 def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
     """
     Returns a list of FunctionTool instances for essential filesystem operations.
@@ -440,4 +461,5 @@ def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
         FunctionTool(design_architecture),
         FunctionTool(review_work),
         FunctionTool(manage_todo_list),
+        FunctionTool(run_subagent),
     ]

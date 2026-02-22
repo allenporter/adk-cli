@@ -62,6 +62,9 @@ def build_adk_agent(
     from google.adk.tools.skill_toolset import SkillToolset
     from google.genai import types
 
+    # Ensure agent_name is a valid identifier (alphanumeric and underscores only)
+    agent_name = agent_name.replace("-", "_")
+
     # Defer loading of model settings
     if model is None:
         settings = load_settings(find_project_root())
