@@ -5,6 +5,7 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
+from adk_cli.confirmation import confirmation_manager
 
 # Tools that are considered safe and don't require confirmation in 'ask' mode
 READ_ONLY_TOOLS = {
@@ -110,9 +111,16 @@ class SecurityPlugin(BasePlugin):
             return {"error": f"Policy Denied: {result.reason}"}
 
         if result.outcome == PolicyOutcome.CONFIRM:
-            # Request confirmation via ADK's built-in mechanism
+            # Always notify the ADK context about the confirmation request
             tool_context.request_confirmation(hint=result.reason)
-            # Indicate that confirmation is required
-            return {"error": f"Confirmation required: {result.reason}"}
+
+            # Let the confirmation manager handle it (it knows about current TUI/CLI)
+            approved = await confirmation_manager.request_confirmation(
+                hint=result.reason
+            )
+            if approved:
+                return None  # Approved! Continue execution!
+            else:
+                return {"error": f"Confirmation required: {result.reason}"}
 
         return None

@@ -4,11 +4,12 @@ import random
 import re
 from typing import AsyncGenerator
 
-from google.genai import types
 from google.adk.models.google_llm import Gemini, _ResourceExhaustedError
 from google.genai.errors import ClientError
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+
+from adk_cli.status import status_manager
 
 logger = logging.getLogger(__name__)
 
@@ -98,15 +99,9 @@ class AdkRetryGemini(Gemini):
                 )
 
                 # Notify the user via the TUI that a rate limit has occurred
-                yield LlmResponse(
-                    content=types.Content(
-                        role="model",
-                        parts=[
-                            types.Part(
-                                text=f"```thought\n[Rate Limit] Waiting {total_delay:.1f}s before resuming...\n```\n"
-                            )
-                        ],
-                    )
+                status_manager.update(
+                    f"Refining thoughts while waiting for Gemini to recover... "
+                    f"Retrying in {total_delay:.1f}s (attempt {attempt}/{max_attempts})."
                 )
 
                 await asyncio.sleep(total_delay)

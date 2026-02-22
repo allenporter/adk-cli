@@ -1,14 +1,71 @@
 import logging
+import asyncio
 from typing import Optional
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Static, Label
+from textual.widgets import Header, Footer, Input, Static, Label, Button
 from textual.binding import Binding
+from textual.screen import ModalScreen
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
 
+from adk_cli.confirmation import confirmation_manager
+from adk_cli.status import status_manager
+
 logger = logging.getLogger(__name__)
+
+
+class ConfirmationModal(ModalScreen[bool]):
+    """A modal dialog to confirm or deny an action."""
+
+    CSS = """
+    ConfirmationModal {
+        align: center middle;
+    }
+
+    #dialog {
+        padding: 1 2;
+        width: 60;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+    }
+
+    #hint {
+        margin: 1 0;
+        color: $text;
+        text-align: center;
+    }
+
+    #buttons {
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    Button {
+        margin: 0 2;
+    }
+    """
+
+    def __init__(self, hint: str):
+        super().__init__()
+        self.hint = hint
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Label("⚠️  Confirmation Required", id="title")
+            yield Label(self.hint, id="hint")
+            with Horizontal(id="buttons"):
+                yield Button("Approve", variant="success", id="approve")
+                yield Button("Deny", variant="error", id="deny")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "approve":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
 
 
 class Message(Static):
@@ -21,6 +78,9 @@ class Message(Static):
         self.add_class(role)
 
     def render(self) -> Markdown:
+        if self.role == "status":
+            return Markdown(f"*💭 {self.text}*")
+
         prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
         return Markdown(f"### {prefix}\n\n{self.text}")
 
@@ -68,6 +128,13 @@ class ChatScreen(Screen):
     Message.user {
         border-left: solid #28a745;
     }
+
+    Message.status {
+        background: #221100;
+        color: #ffa500;
+        border-left: solid #ffa500;
+        opacity: 0.8;
+    }
     """
 
     BINDINGS = [Binding("ctrl+c", "app.quit", "Quit", show=False)]
@@ -111,6 +178,17 @@ class ChatScreen(Screen):
     async def handle_initial_query(self, query: str) -> None:
         await self.process_query(query)
 
+    def add_status_message(self, text: str) -> None:
+        """Adds a subtle status message to the chat scroll."""
+        msg = Message(text, role="status")
+        # Ensure we are modifying UI on the right loop/thread
+        self.app.call_from_thread(self._mount_status, msg)
+
+    def _mount_status(self, msg: Message) -> None:
+        chat_scroll = self.query_one("#chat-scroll", Container)
+        chat_scroll.mount(msg)
+        chat_scroll.scroll_end()
+
     async def process_query(self, query: str) -> None:
         if not self.runner:
             return
@@ -132,7 +210,7 @@ class ChatScreen(Screen):
                 session_id=self.session_id,
                 new_message=new_message,
             ):
-                logger.debug(f"Received Runner event type: {type(event)}")
+                logger.debug(f"Received Runner event: {event}")
                 if event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
@@ -193,7 +271,11 @@ class AdkTuiApp(App):
         self.user_id = user_id
         self.session_id = session_id
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
+        # Register the callbacks with the global managers
+        confirmation_manager.register_callback(self.ask_confirmation)
+        status_manager.register_callback(self.show_status_update)
+
         self.push_screen(
             ChatScreen(
                 runner=self.runner,
@@ -202,6 +284,27 @@ class AdkTuiApp(App):
                 initial_query=self.initial_query,
             )
         )
+
+    def show_status_update(self, message: str) -> None:
+        """
+        Handle a status update from the system.
+        """
+        try:
+            if isinstance(self.screen, ChatScreen):
+                self.screen.add_status_message(message)
+        except Exception:
+            # Fallback for when the ChatScreen isn't the active screen
+            pass
+
+    async def ask_confirmation(self, req_id: str, hint: str) -> bool:
+        """
+        Displays a modal to ask for user confirmation.
+        """
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        # ModalScreen.dismiss calls the callback passed to push_screen
+        self.push_screen(ConfirmationModal(hint), callback=future.set_result)
+        return await future
 
 
 if __name__ == "__main__":
