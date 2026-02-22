@@ -3,6 +3,7 @@ import sys
 import click
 from click import Command
 from typing import Optional, List, Any
+import logging
 
 from google.genai import types
 
@@ -13,6 +14,9 @@ from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
 from adk_cli.tui import AdkTuiApp
 from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
+from adk_cli.skills import discover_skills, build_skills_instruction
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-2.0-flash"
 
@@ -199,9 +203,17 @@ def _build_runner(ctx: click.Context) -> Runner:
     policy_engine = CustomPolicyEngine(mode=permission_mode)
     security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
+    # Discover and load skills from the workspace.
+    skills = discover_skills(Path.cwd())
+    if skills:
+        logger.debug("Loaded %d skill(s): %s", len(skills), [s.name for s in skills])
+    skills_instruction = build_skills_instruction(skills)
+
+    # Build the agent with the discovered skills injected into the instruction.
     agent = LlmAgent(
         name="adk_cli_agent",
         model=DEFAULT_MODEL,
+        instruction=skills_instruction,
         tools=get_essential_tools(),
     )
 
