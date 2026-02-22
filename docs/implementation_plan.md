@@ -94,3 +94,21 @@ Choosing between augmenting the main agent (Skills) and delegating to a separate
 ### Technical Approach in ADK
 - **Skills**: Augmented into the system prompt of the primary `Runner`.
 - **Sub-agents**: Launched via a `run_subagent` tool which spawns a new `Runner` instance with a separate session and instructions, returning only the resulting "report" to the caller.
+
+---
+
+## Code Integrity & Modification Strategy (Insights from Nano-Claw)
+
+While `google-adk` provides the base for file operations, `nano-claw` demonstrates advanced "Integrity-First" patterns that can be adopted to make `adk-cli` more resilient.
+
+### 1. Structured Data Merging
+Rather than treating all files as blobs of text, use specialized handlers for structured configuration files.
+- **Implementation**: Provide dedicated tools (e.g., `add_python_dependency`, `modify_env_variable`) that use structured parsers (like `tomlkit` or `python-dotenv`) to ensure the file remains valid after modification, bypassing expensive and error-prone LLM regex "patching."
+
+### 2. Three-Way Merge for Drift Resolution
+Maintain a baseline of files to detect the difference between "What the agent thought was there" and "What is actually there."
+- **Implementation**: When `edit_file` is called, perform a three-way merge (Base vs. Current vs. Proposed) to automatically reconcile changes if the user has manually edited the file in parallel.
+
+### 3. Atomic Tool Transactions (Rollbacks)
+Complex multi-file modifications should be reversible.
+- **Implementation**: Before a destructive tool execution (like `edit_file` or `bash`), create a temporary backup. If the operation fails (e.g., a merge conflict or a lint error post-edit), the agent should have a `rollback` tool to restore the previous state instantly.

@@ -38,3 +38,8 @@
 - [ ] Add external hook support to `SecurityPlugin`.
 - [ ] Implement interactive "Clarification Loop" in the TUI.
 - [ ] Project-level skill discovery from `.adk/skills/`.
+
+## Phase 4: Integrity & Advanced Merging (Insights from Nano-Claw)
+- [ ] Implement structured TOML/Env-aware modification tools.
+- [ ] Support three-way merging for `edit_file` to handle drift.
+- [ ] Add atomic "undo/rollback" capability for failed multi-file edits.
