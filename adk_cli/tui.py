@@ -198,9 +198,8 @@ class ChatScreen(Screen):
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
-        agent_message = Message("", role="agent")
-        await chat_scroll.mount(agent_message)
-        chat_scroll.scroll_end()
+        # Input text content specifically from the agent/model
+        current_agent_message = None
 
         new_message = types.Content(role="user", parts=[types.Part(text=query)])
 
@@ -212,13 +211,22 @@ class ChatScreen(Screen):
             ):
                 logger.debug(f"Received Runner event: {event}")
                 if event.content and event.content.parts:
+                    # Filter for model-originated text ONLY to avoid dumping tool outputs/user text
+                    role = event.content.role
                     for part in event.content.parts:
-                        if part.text:
-                            agent_message.text += part.text
-                            agent_message.refresh()
+                        if part.text and role == "model":
+                            if current_agent_message is None:
+                                current_agent_message = Message("", role="agent")
+                                await chat_scroll.mount(current_agent_message)
+
+                            current_agent_message.text += part.text
+                            current_agent_message.refresh()
                             chat_scroll.scroll_end()
 
                 if event.get_function_calls():
+                    # If we have an active agent message, "close" it to ensure the tool call
+                    # is mounted AFTER the text, and later text is mounted AFTER the tool call.
+                    current_agent_message = None
                     for call in event.get_function_calls():
                         logger.debug(f"Requesting function call execution: {call.name}")
                         args = call.args or {}

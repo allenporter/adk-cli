@@ -177,8 +177,9 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
         ):
             logger.debug(f"Received sync Runner event type: {type(event)}")
             if event.content and event.content.parts:
+                role = event.content.role
                 for part in event.content.parts:
-                    if part.text:
+                    if part.text and role == "model":
                         click.echo(part.text, nl=False)
             if event.get_function_calls():
                 for call in event.get_function_calls():
@@ -248,7 +249,7 @@ def build_adk_agent(model: str | None = None) -> LlmAgent:
     return LlmAgent(
         name="adk_cli_agent",
         model=llm_model,
-        tools=get_essential_tools(),
+        tools=tools,
     )
 
 
