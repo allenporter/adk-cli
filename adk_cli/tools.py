@@ -1,3 +1,25 @@
+"""
+Essential filesystem and shell tools for the ADK CLI agent.
+
+Hardening Philosophy:
+1.  **Output Control**: Large outputs are truncated (e.g., `cat`, `grep`, `bash`) to avoid
+    overwhelming the model's context or causing terminal instability. Paging is provided
+    where appropriate.
+2.  **Safety & Precision**: File modifications (`edit_file`) require exact, unique matches
+    to prevent accidental corruption. Destructive operations should be avoided or carefully
+    wrapped.
+3.  **Predictability**: Tools return structured, sorted, and well-labeled information
+    (e.g., `ls` marks directories, `grep` includes line numbers) to improve model reasoning.
+4.  **Robustness**: Tools handle edge cases like binary files, character encoding issues,
+    and command timeouts to prevent silent or confusing failures.
+5.  **Efficiency**: Batch operations (e.g., `read_many_files`) reduce tool call overhead.
+
+Future Guidance:
+- When adding tools, consider if the output could be excessively large.
+- Avoid tools that allow arbitrary code execution without a specific reason.
+- Prefer high-level semantic tools over low-level primitives when possible.
+"""
+
 import os
 import subprocess
 from typing import Any, Callable
@@ -7,26 +29,73 @@ from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
 
 
-def ls(directory: str = ".") -> str:
+def ls(directory: str = ".", show_hidden: bool = False) -> str:
     """
     Lists the files and directories in the specified path.
+    Directories are suffixed with a trailing slash.
     """
     try:
-        items = os.listdir(directory)
+        items = []
+        for entry in os.scandir(directory):
+            if not show_hidden and entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                items.append(f"{entry.name}/")
+            else:
+                items.append(entry.name)
+        items.sort()
         return "\n".join(items) if items else "No items found."
     except Exception as e:
         return f"Error listing directory: {str(e)}"
 
 
-def cat(path: str) -> str:
+def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
     """
     Reads and returns the content of the file at the specified path.
+    If the file is large, use start_line and end_line to read it in chunks.
+    Line numbers are 1-indexed.
     """
     try:
-        with open(path, "r") as f:
-            return f.read()
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+
+        if start_line < 1:
+            start_line = 1
+
+        if end_line is None:
+            # Default to showing 1000 lines if no end_line is specified
+            end_line = min(start_line + 999, total_lines)
+
+        if end_line > total_lines:
+            end_line = total_lines
+
+        if start_line > total_lines:
+            return f"Error: start_line ({start_line}) is greater than total lines ({total_lines})"
+
+        selected_lines = lines[start_line - 1 : end_line]
+        content = "".join(selected_lines)
+
+        if end_line < total_lines:
+            content += f"\n\n[Output truncated. Showing lines {start_line}-{end_line} of {total_lines}. Use start_line and end_line to read more.]"
+
+        return content
+    except UnicodeDecodeError:
+        return f"Error: {path} appears to be a binary file."
     except Exception as e:
         return f"Error reading file: {str(e)}"
+
+
+def read_many_files(paths: list[str]) -> str:
+    """
+    Reads multiple files and returns their contents in a structured format.
+    """
+    results = []
+    for path in paths:
+        content = cat(path)
+        results.append(f"--- File: {path} ---\n{content}\n")
+    return "\n".join(results)
 
 
 def write_file(path: str, content: str) -> str:
@@ -34,8 +103,10 @@ def write_file(path: str, content: str) -> str:
     Creates or overwrites a file at the specified path with the given content.
     """
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
+        dirname = os.path.dirname(path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return f"Successfully wrote to {path}"
     except Exception as e:
@@ -53,7 +124,7 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
         if not os.path.exists(path):
             return f"Error: File not found at {path}"
 
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             content = f.read()
 
         occurrences = content.count(search_text)
@@ -72,7 +143,7 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
 
         new_content = content.replace(search_text, replacement_text)
 
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(new_content)
 
         return f"Successfully edited {path}"
@@ -80,15 +151,32 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
         return f"Error editing file: {str(e)}"
 
 
-def grep(pattern: str, directory: str = ".", recursive: bool = True) -> str:
+def grep(
+    pattern: str, directory: str = ".", recursive: bool = True, context_lines: int = 0
+) -> str:
     """
     Searches for a pattern within files in a directory.
+    context_lines: Number of lines of leading and trailing context to show.
     """
     try:
-        cmd = ["grep", "-r" if recursive else "", pattern, directory]
-        cmd = [c for c in cmd if c]
+        cmd = ["grep", "-n"]
+        if recursive:
+            cmd.append("-r")
+        if context_lines > 0:
+            cmd.append(f"-C{context_lines}")
+        cmd.extend([pattern, directory])
+
         result = subprocess.run(cmd, capture_output=True, text=True)
-        return result.stdout if result.stdout else "No matches found."
+        output = result.stdout if result.stdout else "No matches found."
+
+        max_chars = 15000
+        if len(output) > max_chars:
+            truncation_msg = (
+                f"\n\n[Output truncated from {len(output)} characters to {max_chars}]"
+            )
+            return output[:max_chars] + truncation_msg
+
+        return output
     except Exception as e:
         return f"Error running grep: {str(e)}"
 
@@ -134,6 +222,7 @@ def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
     return [
         FunctionTool(ls),
         FunctionTool(cat),
+        FunctionTool(read_many_files),
         FunctionTool(write_file),
         FunctionTool(edit_file),
         FunctionTool(grep),
