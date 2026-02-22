@@ -76,8 +76,8 @@ class Message(Static):
 
     def __init__(self, text: str, role: str):
         super().__init__()
-        self.text = text
         self.role = role
+        self.text = text
         self.add_class(role)
 
     def watch_text(self, old_text: str, new_text: str) -> None:
