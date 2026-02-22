@@ -1,6 +1,8 @@
 from click.testing import CliRunner
 from adk_cli.main import cli
 from unittest.mock import patch
+from google.adk.events.event import Event
+from google.genai import types
 
 
 def test_cli_help() -> None:
@@ -38,9 +40,19 @@ def test_cli_chat_direct() -> None:
 
 def test_cli_chat_print() -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, ["chat", "-p", "Hello world"])
-    assert result.exit_code == 0
-    assert "Executing one-off query in print mode: Hello world" in result.output
+    with patch("adk_cli.main._get_runner") as mock_get_runner:
+        mock_runner = mock_get_runner.return_value
+        # Mock the run generator to yield a simple event
+        fake_event = Event(
+            author="model",
+            content=types.Content(parts=[types.Part(text="Mocked response")]),
+        )
+        mock_runner.run.return_value = [fake_event]
+
+        result = runner.invoke(cli, ["chat", "-p", "Hello world"])
+        assert result.exit_code == 0
+        assert "Executing one-off query in print mode: Hello world" in result.output
+        assert "Mocked response" in result.output
 
 
 def test_main_injection_output() -> None:

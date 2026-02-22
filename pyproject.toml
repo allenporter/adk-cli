@@ -68,3 +68,8 @@ warn_unreachable = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:google.genai.types.*",
+    "ignore::DeprecationWarning:google.adk.runners.*",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
+]
