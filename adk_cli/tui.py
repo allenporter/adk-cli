@@ -1,6 +1,7 @@
 import logging
 import asyncio
-from typing import Optional
+import json
+from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Static, Label, Button
@@ -10,6 +11,8 @@ from textual.reactive import reactive
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
+
+from rich.syntax import Syntax
 
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.status import status_manager
@@ -27,16 +30,37 @@ class ConfirmationModal(ModalScreen[bool]):
 
     #dialog {
         padding: 1 2;
-        width: 60;
-        height: auto;
+        width: 80;
+        max-height: 80vh;
         border: thick $primary;
         background: $surface;
+    }
+
+    #title {
+        text-align: center;
+        width: 100%;
+        text-style: bold;
+        margin-bottom: 1;
     }
 
     #hint {
         margin: 1 0;
         color: $text;
         text-align: center;
+    }
+
+    #tool-info {
+        margin: 1 0;
+        padding: 1;
+        background: $boost;
+        border: solid $primary;
+    }
+
+    #args-container {
+        margin: 1 0;
+        height: auto;
+        max-height: 20;
+        border: solid $panel;
     }
 
     #buttons {
@@ -50,14 +74,38 @@ class ConfirmationModal(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, hint: str):
+    def __init__(
+        self,
+        hint: str,
+        tool_name: Optional[str] = None,
+        tool_args: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__()
         self.hint = hint
+        self.tool_name = tool_name
+        self.tool_args = tool_args
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
             yield Label("⚠️  Confirmation Required", id="title")
             yield Label(self.hint, id="hint")
+
+            if self.tool_name:
+                with Vertical(id="tool-info"):
+                    yield Label(f"Tool: [bold]{self.tool_name}[/bold]")
+
+                    if self.tool_args:
+                        args_json = json.dumps(self.tool_args, indent=2)
+                        lines = args_json.splitlines()
+                        if len(lines) > 20:
+                            args_json = (
+                                "\n".join(lines[:20]) + "\n... (args truncated) ..."
+                            )
+                        yield Container(
+                            Static(Syntax(args_json, "json", theme="monokai")),
+                            id="args-container",
+                        )
+
             with Horizontal(id="buttons"):
                 yield Button("Approve", variant="success", id="approve")
                 yield Button("Deny", variant="error", id="deny")
@@ -381,14 +429,22 @@ class AdkTuiApp(App):
             # Fallback for when the ChatScreen isn't the active screen
             pass
 
-    async def ask_confirmation(self, req_id: str, hint: str) -> bool:
+    async def ask_confirmation(
+        self,
+        req_id: str,
+        hint: str,
+        tool_name: Optional[str] = None,
+        tool_args: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """
         Displays a modal to ask for user confirmation.
         """
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         # ModalScreen.dismiss calls the callback passed to push_screen
-        self.push_screen(ConfirmationModal(hint), callback=future.set_result)
+        self.push_screen(
+            ConfirmationModal(hint, tool_name, tool_args), callback=future.set_result
+        )
         return await future
 
 

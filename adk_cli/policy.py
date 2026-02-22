@@ -58,6 +58,29 @@ class CustomPolicyEngine(BasePolicyEngine):
     def __init__(self, mode: PermissionMode = PermissionMode.ASK):
         self.mode = mode
 
+    def _format_reason(
+        self, prefix: str, tool_name: str, tool_args: Dict[str, Any]
+    ) -> str:
+        reason = f"{prefix}: {tool_name}"
+
+        # Extract key arguments to surface in the confirmation dialog
+        key_args = []
+        if "path" in tool_args:
+            key_args.append(f"path='{tool_args['path']}'")
+        elif "directory" in tool_args:
+            key_args.append(f"dir='{tool_args['directory']}'")
+
+        if "command" in tool_args:
+            key_args.append(f"cmd='{tool_args['command']}'")
+
+        if "pattern" in tool_args:
+            key_args.append(f"pattern='{tool_args['pattern']}'")
+
+        if key_args:
+            reason += f" ({', '.join(key_args)})"
+
+        return reason
+
     async def evaluate(
         self, tool_name: str, tool_args: Dict[str, Any]
     ) -> PolicyCheckResult:
@@ -76,13 +99,15 @@ class CustomPolicyEngine(BasePolicyEngine):
             # For now, treat it similarly to 'ask' but with different messaging.
             return PolicyCheckResult(
                 outcome=PolicyOutcome.CONFIRM,
-                reason=f"Planned execution of {tool_name}",
+                reason=self._format_reason(
+                    "Planned execution of", tool_name, tool_args
+                ),
             )
 
         # Fallback for ASK mode or any unexpected mode
         return PolicyCheckResult(
             outcome=PolicyOutcome.CONFIRM,
-            reason=f"Sensitive tool call: {tool_name}",
+            reason=self._format_reason("Sensitive tool call", tool_name, tool_args),
         )
 
 
@@ -116,7 +141,7 @@ class SecurityPlugin(BasePlugin):
 
             # Let the confirmation manager handle it (it knows about current TUI/CLI)
             approved = await confirmation_manager.request_confirmation(
-                hint=result.reason
+                hint=result.reason, tool_name=tool.name, tool_args=tool_args
             )
             if approved:
                 return None  # Approved! Continue execution!
