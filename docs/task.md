@@ -30,6 +30,7 @@
     - [x] Replace `InMemorySessionService` with `SqliteSessionService` using `~/.adk/sessions.db`
     - [x] Update CLI to auto-detect the project and resume the most recent session for that project by default
     - [x] Add CLI commands to list and delete sessions
+    - [x] Add garbage collection command (`sessions gc`) for old sessions
     - [x] Implement `config` command to manage global settings
     - [x] Verify persistence: Ensure the agent remembers context across restarts
 
