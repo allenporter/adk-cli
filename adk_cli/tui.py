@@ -264,8 +264,42 @@ class ChatScreen(Screen):
 
     async def on_mount(self) -> None:
         self.query_one("#user-input", Input).focus()
+        await self.load_history()
         if self.initial_query:
             self.run_worker(self.handle_initial_query(self.initial_query))
+
+    async def load_history(self) -> None:
+        """Loads and displays history for the current session."""
+        if not self.runner or not self.runner.session_service:
+            return
+
+        try:
+            session = await self.runner.session_service.get_session(
+                app_name="adk-cli", user_id=self.user_id, session_id=self.session_id
+            )
+            if not session or not session.events:
+                return
+
+            chat_scroll = self.query_one("#chat-scroll", Container)
+
+            for event in session.events:
+                role = "user" if event.author == "user" else "agent"
+                if not event.content or not event.content.parts:
+                    continue
+
+                text_parts = []
+                for part in event.content.parts:
+                    if part.text:
+                        text_parts.append(part.text)
+
+                text = "".join(text_parts).strip()
+                if text:
+                    msg = Message(text, role=role)
+                    await chat_scroll.mount(msg)
+
+            chat_scroll.scroll_end()
+        except Exception as e:
+            logger.warning(f"Failed to load history: {e}")
 
     async def handle_initial_query(self, query: str) -> None:
         await self.process_query(query)

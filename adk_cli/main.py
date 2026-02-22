@@ -81,11 +81,12 @@ def setup_logging(verbose: bool) -> None:
 
 
 async def _get_project_context(
-    continue_session: bool, resume_session_id: Optional[str]
+    new_session: bool, resume_session_id: Optional[str]
 ) -> tuple[str, str]:
     """
     Returns the project ID (user_id) and session ID.
-    If continue_session is True, finds the most recent session for the project.
+    By default, finds the most recent session for the project.
+    If new_session is True, creates a new session ID.
     """
     project_root = find_project_root()
     project_id = get_project_id(project_root)
@@ -93,7 +94,7 @@ async def _get_project_context(
     if resume_session_id:
         return project_id, resume_session_id
 
-    if continue_session:
+    if not new_session:
         db_path = str(get_session_db_path())
         service = SqliteSessionService(db_path=db_path)
         try:
@@ -109,7 +110,7 @@ async def _get_project_context(
         except Exception as e:
             logger.warning(f"Failed to list sessions for continuation: {e}")
 
-    # Default: create a new unique session ID if not continuing or resuming
+    # Default: create a new unique session ID if starting fresh
     return project_id, str(uuid.uuid4())[:8]
 
 
@@ -128,17 +129,17 @@ async def _get_project_context(
     help="Print Mode: Executes a task and outputs result to stdout without a TUI.",
 )
 @click.option(
-    "--continue",
-    "-c",
-    "continue_session",
+    "--new",
+    "-n",
+    "new_session",
     is_flag=True,
-    help="Resumes the most recent session.",
+    help="Starts a new session (ignores history).",
 )
 @click.option(
     "--resume",
     "-r",
     "resume_session_id",
-    help="Resumes a specific named or ID-based session.",
+    help="Resumes a specific session ID.",
 )
 @click.option("--add-dir", multiple=True, help="Include additional directories.")
 @click.option("--model", help="Switch between specific Gemini models.")
@@ -163,7 +164,7 @@ def cli(
     ctx: click.Context,
     verbose: bool,
     print_mode: bool,
-    continue_session: bool,
+    new_session: bool,
     resume_session_id: Optional[str],
     add_dir: List[str],
     model: Optional[str],
@@ -178,7 +179,7 @@ def cli(
     setup_logging(verbose)
     if ctx.invoked_subcommand is None:
         project_id, session_id = asyncio.run(
-            _get_project_context(continue_session, resume_session_id)
+            _get_project_context(new_session, resume_session_id)
         )
 
         runner = _build_runner_or_exit(ctx, model)
@@ -198,12 +199,12 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
         is_print = True
 
     parent_params = ctx.parent.params if ctx.parent else {}
-    continue_session = parent_params.get("continue_session", False)
+    new_session = parent_params.get("new_session", False)
     resume_session_id = parent_params.get("resume_session_id")
 
     # Resolve project and session context
     project_id, session_id = asyncio.run(
-        _get_project_context(continue_session, resume_session_id)
+        _get_project_context(new_session, resume_session_id)
     )
 
     if is_print:
