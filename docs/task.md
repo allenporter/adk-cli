@@ -3,13 +3,13 @@
 ## Phase 0: Planning & Architecture
 - [x] Initial Research: gemini-cli architecture
 - [x] Research: Storage & Persistence patterns
-- [/] Refine Implementation Plan
+- [x] Refine Implementation Plan
     - [x] Split architecture doc into manageable chunks
     - [x] Define Bootstrapping MVP requirements
 - [x] Configure Dev Container (.devcontainer)
-- [ ] Get User Approval on MVP Plan
+- [x] Get User Approval on MVP Plan
 
-## Phase 1: Bootstrapping MVP (In Progress)
+## Phase 1: Bootstrapping MVP (Completed)
 - [x] Core Orchestration
     - [x] Create ADK Runner wrapper (`adk_cli/main.py`)
     - [x] Implement CLI entry point via `click`
@@ -19,12 +19,12 @@
 - [x] Minimal TUI
     - [x] Interactive input loop via **Textual**
     - [x] Markdown response rendering
-- [/] Essential Tools (Remaining)
+- [x] Essential Tools
     - [x] Port/Enable `read_file`
     - [x] Port/Enable `write_file`
     - [x] Port/Enable `grep`/`find`
     - [x] Port/Enable `bash`
-- [x] Persistent Storage & Project Context (Completed)
+- [x] Persistent Storage & Project Context
     - [x] Implement `get_adk_home()` and ensure `~/.adk/` exists
     - [x] Implement Project Registry (`projects.json`) to track workspace roots and generate Short IDs
     - [x] Replace `InMemorySessionService` with `SqliteSessionService` using `~/.adk/sessions.db`
@@ -33,7 +33,7 @@
     - [x] Implement `config` command to manage global settings
     - [x] Verify persistence: Ensure the agent remembers context across restarts
 
-## Phase 2: Self-Building
+## Phase 2: Self-Building (In Progress)
 - [ ] Use `adk-cli` to implement `edit` tool (Diff/Patch)
 - [ ] Enhance TUI with status bars and structured output
 - [ ] Implement full workspace/global storage provider
