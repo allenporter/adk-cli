@@ -221,9 +221,9 @@ class ChatScreen(Screen):
             ):
                 logger.debug(f"Received Runner event type {type(event)}: {event}")
                 if event.content and event.content.parts:
-                    # In ADK events, role can sometimes be unset for deltas.
+                    # In ADK events, role can sometimes be None for deltas.
                     # We check for explicitly 'user' role to skip mounting tool/user response text.
-                    role = getattr(event.content, "role", "model")
+                    role = event.content.role
                     for part in event.content.parts:
                         if part.text:
                             if role == "user":
