@@ -34,7 +34,7 @@ def test_cli_mcp() -> None:
 def test_cli_no_api_key_exits_with_instructions() -> None:
     """When no API key is found, should print helpful instructions and exit."""
     runner = CliRunner()
-    with patch("adk_cli.main._resolve_api_key", return_value=None):
+    with patch("adk_cli.agent_factory._resolve_api_key", return_value=None):
         result = runner.invoke(cli, ["chat", "Hello"])
     assert result.exit_code == 1
     assert "aistudio.google.com" in result.output
@@ -43,8 +43,8 @@ def test_cli_no_api_key_exits_with_instructions() -> None:
 def test_cli_chat_direct() -> None:
     runner = CliRunner()
     with (
-        patch("adk_cli.main._build_runner_or_exit") as mock_build,
-        patch("adk_cli.main.AdkTuiApp") as mock_tui,
+        patch("adk_cli.agent_factory.build_runner_or_exit") as mock_build,
+        patch("adk_cli.tui.AdkTuiApp") as mock_tui,
     ):
         mock_build.return_value = mock_build  # just needs to be truthy
         mock_instance = mock_tui.return_value
@@ -56,7 +56,7 @@ def test_cli_chat_direct() -> None:
 
 def test_cli_chat_print() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main._build_runner_or_exit") as mock_build:
+    with patch("adk_cli.agent_factory.build_runner_or_exit") as mock_build:
         mock_runner = mock_build.return_value
         fake_event = Event(
             author="model",
@@ -75,8 +75,8 @@ def test_cli_chat_print() -> None:
 def test_cli_no_args_shows_tui() -> None:
     runner = CliRunner()
     with (
-        patch("adk_cli.main._build_runner_or_exit") as mock_build,
-        patch("adk_cli.main.AdkTuiApp") as mock_tui,
+        patch("adk_cli.agent_factory.build_runner_or_exit") as mock_build,
+        patch("adk_cli.tui.AdkTuiApp") as mock_tui,
     ):
         mock_build.return_value = mock_build
         mock_instance = mock_tui.return_value
@@ -88,7 +88,9 @@ def test_cli_no_args_shows_tui() -> None:
 
 def test_cli_sessions_list() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main.SqliteSessionService") as mock_service:
+    with patch(
+        "google.adk.sessions.sqlite_session_service.SqliteSessionService"
+    ) as mock_service:
         mock_instance = mock_service.return_value
         mock_instance.list_sessions = AsyncMock()
         mock_instance.list_sessions.return_value.sessions = []
@@ -100,7 +102,9 @@ def test_cli_sessions_list() -> None:
 
 def test_cli_sessions_gc_no_sessions() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main.SqliteSessionService") as mock_service:
+    with patch(
+        "google.adk.sessions.sqlite_session_service.SqliteSessionService"
+    ) as mock_service:
         mock_instance = mock_service.return_value
         mock_instance.list_sessions = AsyncMock()
         mock_instance.list_sessions.return_value.sessions = []
@@ -112,7 +116,9 @@ def test_cli_sessions_gc_no_sessions() -> None:
 
 def test_cli_sessions_gc_old_sessions() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main.SqliteSessionService") as mock_service:
+    with patch(
+        "google.adk.sessions.sqlite_session_service.SqliteSessionService"
+    ) as mock_service:
         mock_instance = mock_service.return_value
         mock_instance.list_sessions = AsyncMock()
         mock_instance.delete_session = AsyncMock()

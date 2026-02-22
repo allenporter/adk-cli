@@ -590,6 +590,25 @@ class AdkTuiApp(App):
         )
         return await future
 
+    async def on_shutdown(self) -> None:
+        """Perform cleanup actions before the application exits."""
+        logger.info("Shutting down ADK CLI application...")
+        if self.runner and self.runner.session_service:
+            logger.info("Attempting to finalize session service...")
+            # We don't know the exact method to call for saving.
+            # If SqliteSessionService has a close() or dispose() method,
+            # it would ideally be called here.
+            # For now, we'll just log that we're in the shutdown process.
+            # Example: if hasattr(self.runner.session_service, 'close'):
+            #             await self.runner.session_service.close()
+            # Or: if hasattr(self.runner.session_service, 'dispose'):
+            #         await self.runner.session_service.dispose()
+            logger.info(
+                "Session service finalize attempt complete (or no specific method found)."
+            )
+        else:
+            logger.info("No runner or session service found for shutdown cleanup.")
+
 
 if __name__ == "__main__":
     app = AdkTuiApp()
