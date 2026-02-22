@@ -31,6 +31,7 @@
     - [x] Update CLI to auto-detect the project and resume the most recent session for that project by default
     - [x] Add CLI commands to list and delete sessions
     - [x] Add garbage collection command (`sessions gc`) for old sessions
+    - [x] Implement session locking to prevent clobbering by multiple CLI instances
     - [x] Implement `config` command to manage global settings
     - [x] Verify persistence: Ensure the agent remembers context across restarts
 

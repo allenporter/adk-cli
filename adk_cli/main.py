@@ -24,6 +24,7 @@ from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
 from adk_cli.skills import discover_skills
 from adk_cli.projects import find_project_root, get_project_id, get_session_db_path
+from adk_cli.status import is_session_locked, SessionLock
 from adk_cli.settings import load_settings, load_global_settings, save_settings
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,15 @@ async def _get_project_context(
                 sorted_sessions = sorted(
                     response.sessions, key=lambda s: s.last_update_time, reverse=True
                 )
-                return project_id, sorted_sessions[0].id
+                candidate_id = sorted_sessions[0].id
+
+                # If the most recent session is locked, don't resume it unless forced
+                if is_session_locked(candidate_id):
+                    logger.info(
+                        f"Session {candidate_id} is locked. Starting a new session."
+                    )
+                else:
+                    return project_id, candidate_id
         except Exception as e:
             logger.warning(f"Failed to list sessions for continuation: {e}")
 
@@ -186,8 +195,9 @@ def cli(
         )
 
         runner = _build_runner_or_exit(ctx, model)
-        app = AdkTuiApp(runner=runner, user_id=project_id, session_id=session_id)
-        app.run()
+        with SessionLock(session_id):
+            app = AdkTuiApp(runner=runner, user_id=project_id, session_id=session_id)
+            app.run()
 
 
 @cli.command()
@@ -212,48 +222,50 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
 
     if is_print:
         runner = _build_runner_or_exit(ctx)
-        click.echo(
-            f"Executing one-off query (Project: {project_id}, Session: {session_id})"
-        )
-        logger.debug(f"Executing one-off query in print mode: {query_str}")
-        new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
-        for event in runner.run(
-            user_id=project_id, session_id=session_id, new_message=new_message
-        ):
-            logger.debug(f"Received sync Runner event type: {type(event)}")
-            if event.content and event.content.parts:
-                role = event.content.role
-                for part in event.content.parts:
-                    if part.text and role != "user":
-                        click.echo(part.text, nl=False)
-            if event.get_function_calls():
-                for call in event.get_function_calls():
-                    logger.debug(
-                        f"Sync Requesting function call execution: {call.name}"
-                    )
-                    if call.name == "adk_request_confirmation":
+        with SessionLock(session_id):
+            click.echo(
+                f"Executing one-off query (Project: {project_id}, Session: {session_id})"
+            )
+            logger.debug(f"Executing one-off query in print mode: {query_str}")
+            new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
+            for event in runner.run(
+                user_id=project_id, session_id=session_id, new_message=new_message
+            ):
+                logger.debug(f"Received sync Runner event type: {type(event)}")
+                if event.content and event.content.parts:
+                    role = event.content.role
+                    for part in event.content.parts:
+                        if part.text and role != "user":
+                            click.echo(part.text, nl=False)
+                if event.get_function_calls():
+                    for call in event.get_function_calls():
                         logger.debug(
-                            f"Skipping display of ADK confirmation call: {call.name}"
+                            f"Sync Requesting function call execution: {call.name}"
                         )
-                        continue
-                    args = call.args or {}
-                    args_str = (
-                        ", ".join(f"{k}={v!r}" for k, v in args.items())
-                        if isinstance(args, dict)
-                        else str(args)
-                    )
-                    click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
+                        if call.name == "adk_request_confirmation":
+                            logger.debug(
+                                f"Skipping display of ADK confirmation call: {call.name}"
+                            )
+                            continue
+                        args = call.args or {}
+                        args_str = (
+                            ", ".join(f"{k}={v!r}" for k, v in args.items())
+                            if isinstance(args, dict)
+                            else str(args)
+                        )
+                        click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
         logger.debug("--- [CLI One-off query finished] ---")
         click.echo()
     else:
         runner = _build_runner_or_exit(ctx)
-        app = AdkTuiApp(
-            initial_query=query_str,
-            runner=runner,
-            user_id=project_id,
-            session_id=session_id,
-        )
-        app.run()
+        with SessionLock(session_id):
+            app = AdkTuiApp(
+                initial_query=query_str,
+                runner=runner,
+                user_id=project_id,
+                session_id=session_id,
+            )
+            app.run()
 
 
 @cli.command()
