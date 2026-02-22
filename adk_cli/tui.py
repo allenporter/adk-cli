@@ -6,6 +6,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Static, Label, Button
 from textual.binding import Binding
 from textual.screen import ModalScreen
+from textual.reactive import reactive
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
@@ -71,17 +72,26 @@ class ConfirmationModal(ModalScreen[bool]):
 class Message(Static):
     """A widget to display a chat message."""
 
+    text = reactive("", layout=True)
+
     def __init__(self, text: str, role: str):
         super().__init__()
         self.text = text
         self.role = role
         self.add_class(role)
 
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        """Trigger a refresh when the text changes."""
+        # Using self.update here ensures the Static widget's internal state
+        # is correctly updated with the new renderable.
+        self.update(self.render())
+
     def render(self) -> Markdown:
         if self.role == "status":
             return Markdown(f"*💭 {self.text}*")
 
         prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
+        # Always ensure a double newline for clear markdown separation
         return Markdown(f"### {prefix}\n\n{self.text}")
 
 
@@ -209,24 +219,36 @@ class ChatScreen(Screen):
                 session_id=self.session_id,
                 new_message=new_message,
             ):
-                logger.debug(f"Received Runner event: {event}")
+                logger.debug(f"Received Runner event type {type(event)}: {event}")
                 if event.content and event.content.parts:
-                    # Filter for model-originated text ONLY to avoid dumping tool outputs/user text
-                    role = event.content.role
+                    # In ADK events, role can sometimes be unset for deltas.
+                    # We check for explicitly 'user' role to skip mounting tool/user response text.
+                    role = getattr(event.content, "role", "model")
                     for part in event.content.parts:
-                        if part.text and role == "model":
+                        if part.text:
+                            if role == "user":
+                                logger.debug(
+                                    "Skipping text part for agent bubble (explicit user/tool role)"
+                                )
+                                continue
+
                             if current_agent_message is None:
+                                logger.debug("Initializing new agent message bubble")
                                 current_agent_message = Message("", role="agent")
                                 await chat_scroll.mount(current_agent_message)
 
                             current_agent_message.text += part.text
-                            current_agent_message.refresh()
                             chat_scroll.scroll_end()
 
                 if event.get_function_calls():
                     # If we have an active agent message, "close" it to ensure the tool call
                     # is mounted AFTER the text, and later text is mounted AFTER the tool call.
-                    current_agent_message = None
+                    if current_agent_message:
+                        logger.debug(
+                            "Closing current agent message bubble before tool call"
+                        )
+                        current_agent_message = None
+
                     for call in event.get_function_calls():
                         logger.debug(f"Requesting function call execution: {call.name}")
                         args = call.args or {}
@@ -243,6 +265,8 @@ class ChatScreen(Screen):
                         chat_scroll.scroll_end()
 
             logger.debug("--- [Query Finished Successfully] ---")
+            # Final scroll to ensure everything is visible after all mount events settle
+            chat_scroll.scroll_end()
         except Exception as e:
             logger.exception("Error during runner execution:")
             await chat_scroll.mount(Message(f"❌ Error: {str(e)}", role="agent"))

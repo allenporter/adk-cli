@@ -177,9 +177,9 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
         ):
             logger.debug(f"Received sync Runner event type: {type(event)}")
             if event.content and event.content.parts:
-                role = event.content.role
+                role = getattr(event.content, "role", "model")
                 for part in event.content.parts:
-                    if part.text and role == "model":
+                    if part.text and role != "user":
                         click.echo(part.text, nl=False)
             if event.get_function_calls():
                 for call in event.get_function_calls():
