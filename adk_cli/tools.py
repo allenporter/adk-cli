@@ -42,6 +42,44 @@ def write_file(path: str, content: str) -> str:
         return f"Error writing file: {str(e)}"
 
 
+def edit_file(path: str, search_text: str, replacement_text: str) -> str:
+    """
+    Replaces a specific, unique block of text in a file with new content.
+
+    This tool is safer and more efficient than write_file for modifying
+    existing files because it only changes the targeted section.
+    """
+    try:
+        if not os.path.exists(path):
+            return f"Error: File not found at {path}"
+
+        with open(path, "r") as f:
+            content = f.read()
+
+        occurrences = content.count(search_text)
+
+        if occurrences == 0:
+            return (
+                f"Error: search_text not found in {path}. "
+                "Ensure the text matches exactly, including whitespace and indentation."
+            )
+
+        if occurrences > 1:
+            return (
+                f"Error: search_text found {occurrences} times in {path}. "
+                "Please provide a more unique block (include surrounding lines) to target the edit."
+            )
+
+        new_content = content.replace(search_text, replacement_text)
+
+        with open(path, "w") as f:
+            f.write(new_content)
+
+        return f"Successfully edited {path}"
+    except Exception as e:
+        return f"Error editing file: {str(e)}"
+
+
 def grep(pattern: str, directory: str = ".", recursive: bool = True) -> str:
     """
     Searches for a pattern within files in a directory.
@@ -63,5 +101,6 @@ def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
         FunctionTool(ls),
         FunctionTool(cat),
         FunctionTool(write_file),
+        FunctionTool(edit_file),
         FunctionTool(grep),
     ]
