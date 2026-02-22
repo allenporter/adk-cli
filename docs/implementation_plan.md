@@ -60,6 +60,28 @@ Implementation of ADK tools for filesystem operations:
 
 ---
 
+## Current Status & Lessons Learned (Phase 1)
+
+As of the completion of the Bootstrapping MVP, the following core components are operational and have provided key architectural insights:
+
+### 1. Robust File Operations
+The `adk_cli/tools.py` module now includes a refined set of tools (`ls`, `cat`, `write_file`, `edit_file`, `bash`) that handle common pitfalls like large output truncation and exact-match safety for edits.
+- **Insight**: Direct file editing is the most fragile operation. We've moved towards exact-match search/replace, but Phase 2 will focus on more advanced patching.
+
+### 2. TUI & Streaming
+The Textual-based TUI (`adk_cli/tui.py`) successfully handles asynchronous streaming of agent responses while maintaining a responsive UI.
+- **Insight**: Tool call visualization is critical for user trust. We now explicitly show `🛠️ Executing: ...` in the chat history.
+
+### 3. Policy-Based Security
+The `SecurityPlugin` and `CustomPolicyEngine` provide a flexible way to intercept tool calls.
+- **Insight**: The "Confirmation Loop" (interfacing ADK's `request_confirmation` with a Textual `ModalScreen`) is a powerful pattern for human-in-the-loop safety without breaking the agentic flow.
+
+### 4. Persistent Project Context
+By combining `SqliteSessionService` with a project registry (`projects.json`), the CLI now automatically resumes the last session for a given directory.
+- **Insight**: Mapping physical paths to logical "Short IDs" is essential for managing history in a multi-project development environment.
+
+---
+
 ## Strategic Insights from Claude Code Analysis
 
 A review of the `claude-code` codebase and its plugin architecture suggests several high-impact features for `adk-cli`:
