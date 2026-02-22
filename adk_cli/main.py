@@ -1,15 +1,39 @@
 import click
+from click import Command
 import sys
-from typing import Optional, List
+from typing import Optional, List, Any
 
 from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
 from adk_cli.tui import AdkTuiApp
+from adk_cli.tools import get_essential_tools
+
+DEFAULT_MODEL = "gemini-3.0-flash-preview"
 
 
-@click.group(invoke_without_command=True)
+class DefaultGroup(click.Group):
+    """A Click group that invokes a default command if no subcommand is matched."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.default_command = kwargs.pop("default_command", None)
+        super().__init__(*args, **kwargs)
+
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, Command | None, list[str]]:
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            if self.default_command:
+                # Insert the default command name at the beginning of args
+                new_args = [self.default_command] + args
+                return super().resolve_command(ctx, new_args)
+            raise
+
+
+@click.group(cls=DefaultGroup, default_command="chat", invoke_without_command=True)
 @click.option(
     "--print",
     "-p",
@@ -121,16 +145,6 @@ def main(args: Optional[List[str]] = None) -> None:
     if args is None:
         args = sys.argv[1:]
 
-    # If the first argument is not a command and not an option, treat it as a query for 'chat'
-    commands = list(cli.commands.keys())
-    if (
-        args
-        and args[0] not in commands
-        and not args[0].startswith("-")
-        and args[0] != "--help"
-    ):
-        args.insert(0, "chat")
-
     cli(args=args)
 
 
@@ -143,7 +157,11 @@ def _get_runner(ctx: click.Context) -> Runner:
     security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
     # Basic agent setup
-    agent = LlmAgent(name="adk_cli_agent", model="gemini-1.5-flash")
+    agent = LlmAgent(
+        name="adk_cli_agent",
+        model=DEFAULT_MODEL,
+        tools=get_essential_tools(),
+    )
 
     return Runner(
         app_name="adk-cli",
