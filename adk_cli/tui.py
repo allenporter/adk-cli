@@ -1,10 +1,11 @@
+from typing import Optional
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Static, Label
 from textual.binding import Binding
 from rich.markdown import Markdown
-from typing import Optional
 from google.adk.runners import Runner
+from google.genai import types
 
 
 class Message(Static):
@@ -72,11 +73,17 @@ class AdkTuiApp(App):
     ]
 
     def __init__(
-        self, initial_query: Optional[str] = None, runner: Optional[Runner] = None
+        self,
+        initial_query: Optional[str] = None,
+        runner: Optional[Runner] = None,
+        user_id: str = "default_user",
+        session_id: str = "default_session",
     ):
         super().__init__()
         self.initial_query = initial_query
         self.runner = runner
+        self.user_id = user_id
+        self.session_id = session_id
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -101,14 +108,47 @@ class AdkTuiApp(App):
             self.run_worker(self.handle_initial_query(self.initial_query))
 
     async def handle_initial_query(self, query: str) -> None:
-        # Simulate submission logic
+        await self.process_query(query)
+
+    async def process_query(self, query: str) -> None:
+        if not self.runner:
+            return
+
         chat_scroll = self.query_one("#chat-scroll", Container)
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
-        await chat_scroll.mount(
-            Message(f"I received your initial query: {query}", role="agent")
-        )
+
+        # Create the agent message widget (empty at first)
+        agent_message = Message("", role="agent")
+        await chat_scroll.mount(agent_message)
         chat_scroll.scroll_end()
+
+        new_message = types.Content(role="user", parts=[types.Part(text=query)])
+
+        try:
+            async for event in self.runner.run_async(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                new_message=new_message,
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            agent_message.text += part.text
+                            agent_message.refresh()
+                            chat_scroll.scroll_end()
+
+                # Handle tool calls/responses for status updates if needed
+                if event.get_function_calls():
+                    for call in event.get_function_calls():
+                        await chat_scroll.mount(
+                            Message(f"🛠️ Executing: {call.name}", role="agent")
+                        )
+                        chat_scroll.scroll_end()
+
+        except Exception as e:
+            await chat_scroll.mount(Message(f"❌ Error: {str(e)}", role="agent"))
+            chat_scroll.scroll_end()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         if not event.value.strip():
@@ -117,15 +157,7 @@ class AdkTuiApp(App):
         user_text = event.value
         self.query_one("#user-input", Input).value = ""
 
-        # Add user message to UI
-        chat_scroll = self.query_one("#chat-scroll", Container)
-        await chat_scroll.mount(Message(user_text, role="user"))
-        chat_scroll.scroll_end()
-
-        # TODO: Trigger ADK Agent execution
-        # For now, just echo back
-        await chat_scroll.mount(Message(f"I received: {user_text}", role="agent"))
-        chat_scroll.scroll_end()
+        self.run_worker(self.process_query(user_text))
 
 
 if __name__ == "__main__":

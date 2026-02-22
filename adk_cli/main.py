@@ -2,6 +2,7 @@ import click
 from click import Command
 import sys
 from typing import Optional, List, Any
+from google.genai import types
 
 from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
@@ -97,14 +98,14 @@ def cli(
 ) -> None:
     """adk-cli: A powerful agentic CLI built with google-adk."""
     if ctx.invoked_subcommand is None:
+        session_id = resume_session_id or "default_session"
         if continue_session:
-            click.echo("Resuming most recent session...")
-        elif resume_session_id:
-            click.echo(f"Resuming session: {resume_session_id}")
-        else:
-            runner = _get_runner(ctx)
-            app = AdkTuiApp(runner=runner)
-            app.run()
+            # Logic to find the most recent session could go here
+            session_id = "default_session"
+
+        runner = _get_runner(ctx)
+        app = AdkTuiApp(runner=runner, session_id=session_id)
+        app.run()
 
 
 @cli.command()
@@ -114,18 +115,37 @@ def cli(
 def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
     """Execute a task or start a conversation."""
     query_str = " ".join(query)
-    # Inherit options from parent if needed
     is_print = print_mode
     if ctx.parent and ctx.parent.params.get("print_mode"):
         is_print = True
 
+    session_id = "default_session"
+    if ctx.parent:
+        if parent_session_id := ctx.parent.params.get("resume_session_id"):
+            session_id = str(parent_session_id)
+        elif ctx.parent.params.get("continue_session"):
+            session_id = "default_session"  # Should be most recent
+
     if is_print:
         click.echo(f"Executing one-off query in print mode: {query_str}")
         runner = _get_runner(ctx)
-        # TODO: Implement runner.run() for printer
+
+        new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
+
+        for event in runner.run(
+            user_id="default_user", session_id=session_id, new_message=new_message
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        click.echo(part.text, nl=False)
+            if event.get_function_calls():
+                for call in event.get_function_calls():
+                    click.echo(f"\n🛠️ Executing: {call.name}")
+        click.echo()  # Newline at the end
     else:
         runner = _get_runner(ctx)
-        app = AdkTuiApp(initial_query=query_str, runner=runner)
+        app = AdkTuiApp(initial_query=query_str, runner=runner, session_id=session_id)
         app.run()
 
 
@@ -168,6 +188,7 @@ def _get_runner(ctx: click.Context) -> Runner:
         agent=agent,
         session_service=InMemorySessionService(),  # type: ignore[no-untyped-call]
         plugins=[security_plugin],
+        auto_create_session=True,
     )
 
 
