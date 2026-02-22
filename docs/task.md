@@ -36,7 +36,8 @@
     - [x] Verify persistence: Ensure the agent remembers context across restarts
 
 ## Phase 2: Self-Building (In Progress)
-- [ ] Use `adk-cli` to implement `edit` tool (Diff/Patch)
+- [x] Use `adk-cli` to implement `edit` tool (Diff/Patch)
+- [ ] Implement TUI Triage & Redesign (Live Activity Tray) - See [docs/tui_redesign_plan.md](docs/tui_redesign_plan.md)
 - [ ] Enhance TUI with status bars and structured output
 - [ ] Implement full workspace/global storage provider
 
