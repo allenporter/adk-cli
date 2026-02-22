@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 from adk_cli.main import cli
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from google.adk.events.event import Event
 from google.genai import types
 
@@ -66,7 +66,9 @@ def test_cli_chat_print() -> None:
 
         result = runner.invoke(cli, ["chat", "-p", "Hello world"])
         assert result.exit_code == 0
-        assert "Executing one-off query in print mode: Hello world" in result.output
+        assert "Executing one-off query" in result.output
+        assert "Project:" in result.output
+        assert "Session:" in result.output
         assert "Mocked response" in result.output
 
 
@@ -82,3 +84,15 @@ def test_cli_no_args_shows_tui() -> None:
         assert result.exit_code == 0
         mock_tui.assert_called_once()
         mock_instance.run.assert_called_once()
+
+
+def test_cli_sessions_list() -> None:
+    runner = CliRunner()
+    with patch("adk_cli.main.SqliteSessionService") as mock_service:
+        mock_instance = mock_service.return_value
+        mock_instance.list_sessions = AsyncMock()
+        mock_instance.list_sessions.return_value.sessions = []
+
+        result = runner.invoke(cli, ["sessions", "list"])
+        assert result.exit_code == 0
+        assert "No sessions found." in result.output

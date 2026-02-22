@@ -1,15 +1,18 @@
 import os
 import sys
 import click
+import asyncio
+import uuid
 from click import Command
 from typing import Optional, List, Any
 import logging
 from pathlib import Path
+from datetime import datetime
 
 from google.genai import types
 from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.adk.sessions.sqlite_session_service import SqliteSessionService
 from google.adk.tools.skill_toolset import SkillToolset
 
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
@@ -18,6 +21,7 @@ from adk_cli.tui import AdkTuiApp
 from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
 from adk_cli.skills import discover_skills
+from adk_cli.projects import find_project_root, get_project_id, get_session_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +78,39 @@ def setup_logging(verbose: bool) -> None:
     logging.getLogger("markdown_it").setLevel(logging.WARNING)
     if verbose:
         logger.info("Logging initialized at DEBUG level.")
+
+
+async def _get_project_context(
+    continue_session: bool, resume_session_id: Optional[str]
+) -> tuple[str, str]:
+    """
+    Returns the project ID (user_id) and session ID.
+    If continue_session is True, finds the most recent session for the project.
+    """
+    project_root = find_project_root()
+    project_id = get_project_id(project_root)
+
+    if resume_session_id:
+        return project_id, resume_session_id
+
+    if continue_session:
+        db_path = str(get_session_db_path())
+        service = SqliteSessionService(db_path=db_path)
+        try:
+            response = await service.list_sessions(
+                app_name="adk-cli", user_id=project_id
+            )
+            if response.sessions:
+                # Sort by last_update_time descending
+                sorted_sessions = sorted(
+                    response.sessions, key=lambda s: s.last_update_time, reverse=True
+                )
+                return project_id, sorted_sessions[0].id
+        except Exception as e:
+            logger.warning(f"Failed to list sessions for continuation: {e}")
+
+    # Default: create a new unique session ID if not continuing or resuming
+    return project_id, str(uuid.uuid4())[:8]
 
 
 @click.group(cls=DefaultGroup, default_command="chat", invoke_without_command=True)
@@ -140,12 +177,12 @@ def cli(
     """adk-cli: A powerful agentic CLI built with google-adk."""
     setup_logging(verbose)
     if ctx.invoked_subcommand is None:
-        session_id = resume_session_id or "default_session"
-        if continue_session:
-            session_id = "default_session"
+        project_id, session_id = asyncio.run(
+            _get_project_context(continue_session, resume_session_id)
+        )
 
         runner = _build_runner_or_exit(ctx, model)
-        app = AdkTuiApp(runner=runner, session_id=session_id)
+        app = AdkTuiApp(runner=runner, user_id=project_id, session_id=session_id)
         app.run()
 
 
@@ -160,20 +197,24 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
     if ctx.parent and ctx.parent.params.get("print_mode"):
         is_print = True
 
-    session_id = "default_session"
-    if ctx.parent:
-        if parent_session_id := ctx.parent.params.get("resume_session_id"):
-            session_id = str(parent_session_id)
-        elif ctx.parent.params.get("continue_session"):
-            session_id = "default_session"
+    parent_params = ctx.parent.params if ctx.parent else {}
+    continue_session = parent_params.get("continue_session", False)
+    resume_session_id = parent_params.get("resume_session_id")
+
+    # Resolve project and session context
+    project_id, session_id = asyncio.run(
+        _get_project_context(continue_session, resume_session_id)
+    )
 
     if is_print:
         runner = _build_runner_or_exit(ctx)
-        click.echo(f"Executing one-off query in print mode: {query_str}")
+        click.echo(
+            f"Executing one-off query (Project: {project_id}, Session: {session_id})"
+        )
         logger.debug(f"Executing one-off query in print mode: {query_str}")
         new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
         for event in runner.run(
-            user_id="default_user", session_id=session_id, new_message=new_message
+            user_id=project_id, session_id=session_id, new_message=new_message
         ):
             logger.debug(f"Received sync Runner event type: {type(event)}")
             if event.content and event.content.parts:
@@ -202,7 +243,12 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
         click.echo()
     else:
         runner = _build_runner_or_exit(ctx)
-        app = AdkTuiApp(initial_query=query_str, runner=runner, session_id=session_id)
+        app = AdkTuiApp(
+            initial_query=query_str,
+            runner=runner,
+            user_id=project_id,
+            session_id=session_id,
+        )
         app.run()
 
 
@@ -216,6 +262,65 @@ def agents() -> None:
 def mcp() -> None:
     """Manages Model Context Protocol server connections."""
     click.echo("Managing MCP connections...")
+
+
+@cli.group()
+def sessions() -> None:
+    """Manage agent sessions."""
+    pass
+
+
+@sessions.command(name="list")
+@click.option("--all", is_flag=True, help="List sessions across all projects.")
+def list_sessions_cmd(all: bool) -> None:
+    """List recent sessions."""
+    db_path = str(get_session_db_path())
+    service = SqliteSessionService(db_path=db_path)
+
+    project_root = find_project_root()
+    project_id = get_project_id(project_root)
+
+    async def _list():
+        response = await service.list_sessions(
+            app_name="adk-cli", user_id=None if all else project_id
+        )
+        if not response.sessions:
+            click.echo("No sessions found.")
+            return
+
+        # Sort by last_update_time descending
+        sorted_sessions = sorted(
+            response.sessions, key=lambda s: s.last_update_time, reverse=True
+        )
+
+        click.echo(f"{'SESSION ID':<15} {'PROJECT':<15} {'UPDATED':<20}")
+        click.echo("-" * 50)
+        for s in sorted_sessions:
+            updated = datetime.fromtimestamp(s.last_update_time).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            click.echo(f"{s.id:<15} {s.user_id:<15} {updated:<20}")
+
+    asyncio.run(_list())
+
+
+@sessions.command(name="delete")
+@click.argument("session_id")
+def delete_session_cmd(session_id: str) -> None:
+    """Delete a specific session."""
+    db_path = str(get_session_db_path())
+    service = SqliteSessionService(db_path=db_path)
+
+    project_root = find_project_root()
+    project_id = get_project_id(project_root)
+
+    async def _delete():
+        await service.delete_session(
+            app_name="adk-cli", user_id=project_id, session_id=session_id
+        )
+        click.echo(f"Session {session_id} deleted.")
+
+    asyncio.run(_delete())
 
 
 def main(args: Optional[List[str]] = None) -> None:
@@ -277,10 +382,13 @@ def _build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Runne
     policy_engine = CustomPolicyEngine(mode=permission_mode)
     security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
+    db_path = str(get_session_db_path())
+    session_service = SqliteSessionService(db_path=db_path)
+
     return Runner(
         app_name="adk-cli",
         agent=agent,
-        session_service=InMemorySessionService(),
+        session_service=session_service,
         plugins=[security_plugin],
         auto_create_session=True,
     )

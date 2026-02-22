@@ -126,6 +126,18 @@ class ChatScreen(Screen):
         padding: 1;
     }
 
+    #status-bar {
+        height: 1;
+        background: $surface;
+        padding: 0 1;
+        border-bottom: solid $primary;
+    }
+
+    #status-bar Label {
+        margin-right: 2;
+        color: $text-muted;
+    }
+
     #input-container {
         height: auto;
         border-top: solid #333;
@@ -183,6 +195,11 @@ class ChatScreen(Screen):
         yield Header(show_clock=True)
         with Container(id="main-container"):
             with Vertical(id="chat-area"):
+                with Horizontal(id="status-bar"):
+                    yield Label(f"Project: [bold]{self.user_id}[/]", id="project-label")
+                    yield Label(
+                        f"Session: [bold]{self.session_id}[/]", id="session-label"
+                    )
                 with Container(id="chat-scroll"):
                     yield Message(
                         "Welcome to **ADK CLI**! How can I help you today?\n\n"
