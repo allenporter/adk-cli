@@ -1,5 +1,5 @@
 from typing import Optional
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer, Input, Static, Label
 from textual.binding import Binding
@@ -22,8 +22,8 @@ class Message(Static):
         return Markdown(f"### {prefix}\n\n{self.text}")
 
 
-class AdkTuiApp(App):
-    """The main TUI for adk-cli."""
+class ChatScreen(Screen):  # type: ignore[type-arg]
+    """The main chat interface screen."""
 
     CSS = """
     Screen {
@@ -67,23 +67,20 @@ class AdkTuiApp(App):
     }
     """
 
-    BINDINGS = [
-        Binding("q", "quit", "Quit", show=True),
-        Binding("ctrl+c", "quit", "Quit", show=False),
-    ]
+    BINDINGS = [Binding("ctrl+c", "app.quit", "Quit", show=False)]
 
     def __init__(
         self,
-        initial_query: Optional[str] = None,
-        runner: Optional[Runner] = None,
-        user_id: str = "default_user",
-        session_id: str = "default_session",
+        runner: Optional[Runner],
+        user_id: str,
+        session_id: str,
+        initial_query: Optional[str],
     ):
         super().__init__()
-        self.initial_query = initial_query
         self.runner = runner
         self.user_id = user_id
         self.session_id = session_id
+        self.initial_query = initial_query
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -91,20 +88,21 @@ class AdkTuiApp(App):
             with Vertical(id="chat-area"):
                 with Container(id="chat-scroll"):
                     yield Message(
-                        "Welcome to **ADK CLI**! How can I help you today?",
+                        "Welcome to **ADK CLI**! How can I help you today?\n\n"
+                        "Type `/quit` or press **Ctrl+C** to exit.",
                         role="agent",
                     )
                 with Horizontal(id="input-container"):
                     yield Label("> ")
-                    yield Input(placeholder="Ask anything...", id="user-input")
+                    yield Input(
+                        placeholder="Ask anything... (or /quit to exit)",
+                        id="user-input",
+                    )
         yield Footer()
 
     async def on_mount(self) -> None:
         self.query_one("#user-input", Input).focus()
         if self.initial_query:
-            # We can't easily wait for the app to be fully ready to process
-            # but we can schedule it or just call the logic.
-            # Using post_message or just calling the handler
             self.run_worker(self.handle_initial_query(self.initial_query))
 
     async def handle_initial_query(self, query: str) -> None:
@@ -118,7 +116,6 @@ class AdkTuiApp(App):
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
-        # Create the agent message widget (empty at first)
         agent_message = Message("", role="agent")
         await chat_scroll.mount(agent_message)
         chat_scroll.scroll_end()
@@ -138,7 +135,6 @@ class AdkTuiApp(App):
                             agent_message.refresh()
                             chat_scroll.scroll_end()
 
-                # Handle tool calls/responses for status updates if needed
                 if event.get_function_calls():
                     for call in event.get_function_calls():
                         await chat_scroll.mount(
@@ -151,13 +147,45 @@ class AdkTuiApp(App):
             chat_scroll.scroll_end()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if not event.value.strip():
+        text = event.value.strip()
+        if not text:
             return
 
-        user_text = event.value
-        self.query_one("#user-input", Input).value = ""
+        if text.lower() == "/quit":
+            self.app.exit()
+            return
 
-        self.run_worker(self.process_query(user_text))
+        self.query_one("#user-input", Input).value = ""
+        self.run_worker(self.process_query(text))
+
+
+class AdkTuiApp(App):  # type: ignore[type-arg]
+    """The main TUI for adk-cli."""
+
+    BINDINGS = [Binding("ctrl+c", "quit", "Quit", show=False)]
+
+    def __init__(
+        self,
+        initial_query: Optional[str] = None,
+        runner: Optional[Runner] = None,
+        user_id: str = "default_user",
+        session_id: str = "default_session",
+    ):
+        super().__init__()
+        self.initial_query = initial_query
+        self.runner = runner
+        self.user_id = user_id
+        self.session_id = session_id
+
+    def on_mount(self) -> None:
+        self.push_screen(
+            ChatScreen(
+                runner=self.runner,
+                user_id=self.user_id,
+                session_id=self.session_id,
+                initial_query=self.initial_query,
+            )
+        )
 
 
 if __name__ == "__main__":

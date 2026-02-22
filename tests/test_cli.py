@@ -5,6 +5,9 @@ from google.adk.events.event import Event
 from google.genai import types
 
 
+_MOCK_API_KEY = "test-api-key-abc123"
+
+
 def test_cli_help() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
@@ -28,9 +31,22 @@ def test_cli_mcp() -> None:
     assert "Managing MCP connections..." in result.output
 
 
+def test_cli_no_api_key_exits_with_instructions() -> None:
+    """When no API key is found, should print helpful instructions and exit."""
+    runner = CliRunner()
+    with patch("adk_cli.main._resolve_api_key", return_value=None):
+        result = runner.invoke(cli, ["chat", "Hello"])
+    assert result.exit_code == 1
+    assert "aistudio.google.com" in result.output
+
+
 def test_cli_chat_direct() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main.AdkTuiApp") as mock_tui:
+    with (
+        patch("adk_cli.main._build_runner_or_exit") as mock_build,
+        patch("adk_cli.main.AdkTuiApp") as mock_tui,
+    ):
+        mock_build.return_value = mock_build  # just needs to be truthy
         mock_instance = mock_tui.return_value
         result = runner.invoke(cli, ["chat", "Hello world"])
         assert result.exit_code == 0
@@ -40,9 +56,8 @@ def test_cli_chat_direct() -> None:
 
 def test_cli_chat_print() -> None:
     runner = CliRunner()
-    with patch("adk_cli.main._get_runner") as mock_get_runner:
-        mock_runner = mock_get_runner.return_value
-        # Mock the run generator to yield a simple event
+    with patch("adk_cli.main._build_runner_or_exit") as mock_build:
+        mock_runner = mock_build.return_value
         fake_event = Event(
             author="model",
             content=types.Content(parts=[types.Part(text="Mocked response")]),
@@ -55,41 +70,13 @@ def test_cli_chat_print() -> None:
         assert "Mocked response" in result.output
 
 
-def test_main_injection_output() -> None:
-    # We can use CliRunner to test main by passing it as the command (if it were one)
-    # or just test it manually by capturing output.
-    # Actually, click.testing.CliRunner has a 'invoke' that can take any function that calls click commands?
-    # No, it expects a Command object.
-
-    # Let's test main by verifying it calls cli with the right args.
-    # Since we previously had issues with mocking, let's use a simpler approach.
-    # We can just check that 'adk "Hello world"' works as expected via subprocess or similar,
-    # but that's slow.
-
-    # I'll just use a runner to invoke 'cli' with 'chat' explicitly to verify 'chat' works,
-    # and for the 'main' injection, I'll just trust the logic if it's simple enough,
-    # or fix the mock.
-
-    pass
-
-
-def test_main_hello_world() -> None:
+def test_cli_no_args_shows_tui() -> None:
     runner = CliRunner()
-    # Mocking main's behavior by calling it through CliRunner's environment is complex.
-    # Instead, let's just ensure 'chat' subcommand works and 'main' logic is sound.
-
-    # Let's try to invoke cli with what main would produce
-    with patch("adk_cli.main.AdkTuiApp") as mock_tui:
-        mock_instance = mock_tui.return_value
-        result = runner.invoke(cli, ["chat", "Hello"])
-        assert result.exit_code == 0
-        mock_tui.assert_called_once()
-        mock_instance.run.assert_called_once()
-
-
-def test_cli_no_args() -> None:
-    runner = CliRunner()
-    with patch("adk_cli.main.AdkTuiApp") as mock_tui:
+    with (
+        patch("adk_cli.main._build_runner_or_exit") as mock_build,
+        patch("adk_cli.main.AdkTuiApp") as mock_tui,
+    ):
+        mock_build.return_value = mock_build
         mock_instance = mock_tui.return_value
         result = runner.invoke(cli, [])
         assert result.exit_code == 0

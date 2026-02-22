@@ -1,7 +1,9 @@
+import os
+import sys
 import click
 from click import Command
-import sys
 from typing import Optional, List, Any
+
 from google.genai import types
 
 from google.adk.runners import Runner
@@ -10,8 +12,24 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
 from adk_cli.tui import AdkTuiApp
 from adk_cli.tools import get_essential_tools
+from adk_cli.api_key import load_api_key, load_env_file
 
-DEFAULT_MODEL = "gemini-3.0-flash-preview"
+DEFAULT_MODEL = "gemini-2.0-flash"
+
+_NO_KEY_MESSAGE = """\
+Error: No Gemini API key found.
+
+To get started:
+  1. Get a free API key from https://aistudio.google.com/apikey
+  2. Create a .env file in your project directory with:
+
+       GOOGLE_API_KEY="YOUR_API_KEY"
+       GOOGLE_GENAI_USE_VERTEXAI=FALSE
+
+  adk-cli will load this file automatically on startup.
+
+  See: https://google.github.io/adk-docs/agents/models/google-gemini/#google-ai-studio
+"""
 
 
 class DefaultGroup(click.Group):
@@ -28,7 +46,6 @@ class DefaultGroup(click.Group):
             return super().resolve_command(ctx, args)
         except click.UsageError:
             if self.default_command:
-                # Insert the default command name at the beginning of args
                 new_args = [self.default_command] + args
                 return super().resolve_command(ctx, new_args)
             raise
@@ -55,20 +72,12 @@ class DefaultGroup(click.Group):
     "resume_session_id",
     help="Resumes a specific named or ID-based session.",
 )
-@click.option(
-    "--add-dir",
-    multiple=True,
-    help="Include additional directories in the working set.",
-)
+@click.option("--add-dir", multiple=True, help="Include additional directories.")
 @click.option("--model", help="Switch between specific Gemini models.")
 @click.option("--max-turns", type=int, help="Cap the number of tool execution loops.")
 @click.option("--max-budget-usd", type=float, help="Safety cap on session costs.")
-@click.option(
-    "--system-prompt", help="Replace the base instructions (text or file path)."
-)
-@click.option(
-    "--append-system-prompt", help="Add context-specific rules (text or file path)."
-)
+@click.option("--system-prompt", help="Replace the base instructions.")
+@click.option("--append-system-prompt", help="Add context-specific rules.")
 @click.option(
     "--permission-mode",
     type=click.Choice(["plan", "auto", "ask"]),
@@ -100,10 +109,9 @@ def cli(
     if ctx.invoked_subcommand is None:
         session_id = resume_session_id or "default_session"
         if continue_session:
-            # Logic to find the most recent session could go here
             session_id = "default_session"
 
-        runner = _get_runner(ctx)
+        runner = _build_runner_or_exit(ctx)
         app = AdkTuiApp(runner=runner, session_id=session_id)
         app.run()
 
@@ -124,14 +132,12 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
         if parent_session_id := ctx.parent.params.get("resume_session_id"):
             session_id = str(parent_session_id)
         elif ctx.parent.params.get("continue_session"):
-            session_id = "default_session"  # Should be most recent
+            session_id = "default_session"
 
     if is_print:
+        runner = _build_runner_or_exit(ctx)
         click.echo(f"Executing one-off query in print mode: {query_str}")
-        runner = _get_runner(ctx)
-
         new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
-
         for event in runner.run(
             user_id="default_user", session_id=session_id, new_message=new_message
         ):
@@ -142,9 +148,9 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
             if event.get_function_calls():
                 for call in event.get_function_calls():
                     click.echo(f"\n🛠️ Executing: {call.name}")
-        click.echo()  # Newline at the end
+        click.echo()
     else:
-        runner = _get_runner(ctx)
+        runner = _build_runner_or_exit(ctx)
         app = AdkTuiApp(initial_query=query_str, runner=runner, session_id=session_id)
         app.run()
 
@@ -164,19 +170,35 @@ def mcp() -> None:
 def main(args: Optional[List[str]] = None) -> None:
     if args is None:
         args = sys.argv[1:]
-
     cli(args=args)
 
 
-def _get_runner(ctx: click.Context) -> Runner:
-    """Helper to initialize the ADK Runner with policy engine and plugins."""
+def _resolve_api_key() -> Optional[str]:
+    """Load .env then return the API key, or None."""
+    load_env_file(workspace_dir=os.getcwd())
+    return load_api_key()
+
+
+def _build_runner_or_exit(ctx: click.Context) -> Runner:
+    """Resolve the API key and build a Runner, or print instructions and exit."""
+    api_key = _resolve_api_key()
+    if not api_key:
+        click.echo(_NO_KEY_MESSAGE, err=True)
+        sys.exit(1)
+    # Set env var so google-genai client picks it up at init time
+    os.environ["GOOGLE_API_KEY"] = api_key
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
+    return _build_runner(ctx)
+
+
+def _build_runner(ctx: click.Context) -> Runner:
+    """Construct the ADK Runner with policy engine and plugins."""
     mode_str = ctx.parent.params.get("permission_mode", "ask") if ctx.parent else "ask"
     permission_mode = PermissionMode(mode_str)
 
     policy_engine = CustomPolicyEngine(mode=permission_mode)
     security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
-    # Basic agent setup
     agent = LlmAgent(
         name="adk_cli_agent",
         model=DEFAULT_MODEL,

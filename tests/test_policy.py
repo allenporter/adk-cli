@@ -32,7 +32,6 @@ def mock_tool_context() -> MagicMock:
     return ctx
 
 
-@pytest.mark.asyncio
 async def test_policy_auto_mode(
     mock_tool: MagicMock, mock_tool_context: MagicMock
 ) -> None:
@@ -46,7 +45,6 @@ async def test_policy_auto_mode(
     assert result is None  # None means ALLOW
 
 
-@pytest.mark.asyncio
 async def test_policy_ask_mode_sensitive(
     mock_tool: MagicMock, mock_tool_context: MagicMock
 ) -> None:
@@ -63,7 +61,6 @@ async def test_policy_ask_mode_sensitive(
     mock_tool_context.request_confirmation.assert_called_once()
 
 
-@pytest.mark.asyncio
 async def test_policy_ask_mode_read_only(
     mock_read_tool: MagicMock, mock_tool_context: MagicMock
 ) -> None:
@@ -77,7 +74,6 @@ async def test_policy_ask_mode_read_only(
     assert result is None  # Read-only tools should be allowed
 
 
-@pytest.mark.asyncio
 async def test_policy_already_confirmed(
     mock_tool: MagicMock, mock_tool_context: MagicMock
 ) -> None:

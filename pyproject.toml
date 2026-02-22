@@ -13,6 +13,7 @@ authors = [{ name = "Allen Porter", email = "allen.porter@gmail.com" }]
 requires-python = ">=3.14"
 classifiers = []
 dependencies = [
+    "python-dotenv>=1.0.0",
     "google-adk>=1.25.1",
     "click>=8.1.7",
     "rich>=13.7.0",
@@ -42,6 +43,7 @@ include = ["adk_cli*"]
 [tool.mypy]
 exclude = [
   "venv/",
+  ".venv/",
 ]
 platform = "linux"
 show_error_codes = true
