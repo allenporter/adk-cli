@@ -13,3 +13,6 @@ google-adk==1.25.1
 click>=8.1.7
 rich>=13.7.0
 textual>=0.47.1
+
+# Additional test dependencies
+pytest-asyncio==1.3.0
