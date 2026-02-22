@@ -3,8 +3,11 @@
 ## Phase 0: Planning & Architecture
 - [x] Initial Research: gemini-cli architecture
 - [x] Research: Storage & Persistence patterns
-- [x] Refine Implementation Plan
-- [x] Define Bootstrapping MVP requirements
+- [/] Refine Implementation Plan
+    - [x] Split architecture doc into manageable chunks
+    - [x] Define Bootstrapping MVP requirements
+- [x] Configure Dev Container (.devcontainer)
+- [ ] Get User Approval on MVP Plan
 
 ## Phase 1: Bootstrapping MVP (In Progress)
 - [x] Core Orchestration
