@@ -7,12 +7,13 @@ import logging
 from pathlib import Path
 
 from google.genai import types
-
 from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.skill_toolset import SkillToolset
+
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
+from adk_cli.retry_gemini import AdkRetryGemini
 from adk_cli.tui import AdkTuiApp
 from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
@@ -21,6 +22,7 @@ from adk_cli.skills import discover_skills
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
+
 
 _NO_KEY_MESSAGE = """\
 Error: No Gemini API key found.
@@ -57,7 +59,28 @@ class DefaultGroup(click.Group):
             raise
 
 
+def setup_logging(verbose: bool) -> None:
+    """Configures logging for adk-cli."""
+    level = logging.DEBUG if verbose else logging.WARNING
+    # In TUI, we don't want logs to stdout. Instead, log to a file.
+    log_file = "adk-cli.log"
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        filename=log_file,
+        filemode="a",
+    )
+    if verbose:
+        logger.info("Logging initialized at DEBUG level.")
+
+
 @click.group(cls=DefaultGroup, default_command="chat", invoke_without_command=True)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Enable debug logging to a file 'adk-cli.log'.",
+)
 @click.option(
     "--print",
     "-p",
@@ -99,6 +122,7 @@ class DefaultGroup(click.Group):
 @click.pass_context
 def cli(
     ctx: click.Context,
+    verbose: bool,
     print_mode: bool,
     continue_session: bool,
     resume_session_id: Optional[str],
@@ -112,12 +136,13 @@ def cli(
     output_format: str,
 ) -> None:
     """adk-cli: A powerful agentic CLI built with google-adk."""
+    setup_logging(verbose)
     if ctx.invoked_subcommand is None:
         session_id = resume_session_id or "default_session"
         if continue_session:
             session_id = "default_session"
 
-        runner = _build_runner_or_exit(ctx)
+        runner = _build_runner_or_exit(ctx, model)
         app = AdkTuiApp(runner=runner, session_id=session_id)
         app.run()
 
@@ -143,16 +168,21 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
     if is_print:
         runner = _build_runner_or_exit(ctx)
         click.echo(f"Executing one-off query in print mode: {query_str}")
+        logger.debug(f"Executing one-off query in print mode: {query_str}")
         new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
         for event in runner.run(
             user_id="default_user", session_id=session_id, new_message=new_message
         ):
+            logger.debug(f"Received sync Runner event type: {type(event)}")
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
                         click.echo(part.text, nl=False)
             if event.get_function_calls():
                 for call in event.get_function_calls():
+                    logger.debug(
+                        f"Sync Requesting function call execution: {call.name}"
+                    )
                     args = call.args or {}
                     args_str = (
                         ", ".join(f"{k}={v!r}" for k, v in args.items())
@@ -160,6 +190,7 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                         else str(args)
                     )
                     click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
+        logger.debug("--- [CLI One-off query finished] ---")
         click.echo()
     else:
         runner = _build_runner_or_exit(ctx)
@@ -191,27 +222,9 @@ def _resolve_api_key() -> Optional[str]:
     return load_api_key()
 
 
-def _build_runner_or_exit(ctx: click.Context) -> Runner:
-    """Resolve the API key and build a Runner, or print instructions and exit."""
-    api_key = _resolve_api_key()
-    if not api_key:
-        click.echo(_NO_KEY_MESSAGE, err=True)
-        sys.exit(1)
-    # Set env var so google-genai client picks it up at init time
-    os.environ["GOOGLE_API_KEY"] = api_key
-    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
-    return _build_runner(ctx)
-
-
-def _build_runner(ctx: click.Context) -> Runner:
-    """Construct the ADK Runner with policy engine and plugins."""
-    mode_str = ctx.parent.params.get("permission_mode", "ask") if ctx.parent else "ask"
-    permission_mode = PermissionMode(mode_str)
-
-    policy_engine = CustomPolicyEngine(mode=permission_mode)
-    security_plugin = SecurityPlugin(policy_engine=policy_engine)
-
-    # Discover and load skills from the workspace.
+def build_adk_agent(model: str | None = None) -> LlmAgent:
+    """Builds and returns the main LlmAgent for adk-cli."""
+    # Discover skills and inject into instructions
     skills = discover_skills(Path.cwd())
     if skills:
         logger.debug("Loaded %d skill(s): %s", len(skills), [s.name for s in skills])
@@ -221,11 +234,40 @@ def _build_runner(ctx: click.Context) -> Runner:
         tools.append(SkillToolset(skills))
 
     # Build the agent
-    agent = LlmAgent(
-        name="adk_cli_agent",
-        model=DEFAULT_MODEL,
-        tools=tools,
+    retry_options = types.HttpRetryOptions(
+        attempts=1,  # Our custom wrapper handles the retries
+        http_status_codes=[],
     )
+
+    llm_model = AdkRetryGemini(
+        model=model or DEFAULT_MODEL, retry_options=retry_options
+    )
+
+    return LlmAgent(
+        name="adk_cli_agent",
+        model=llm_model,
+        tools=get_essential_tools(),
+    )
+
+
+def _build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Runner:
+    """Resolve the API key and build a Runner, or print instructions and exit."""
+    api_key = _resolve_api_key()
+    if not api_key:
+        click.echo(_NO_KEY_MESSAGE, err=True)
+        sys.exit(1)
+    # Set env var so google-genai client picks it up at init time
+    os.environ["GOOGLE_API_KEY"] = api_key
+    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
+
+    # Create the agent lazily after api key setup
+    agent = build_adk_agent(model)
+
+    mode_str = ctx.parent.params.get("permission_mode", "ask") if ctx.parent else "ask"
+    permission_mode = PermissionMode(mode_str)
+
+    policy_engine = CustomPolicyEngine(mode=permission_mode)
+    security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
     return Runner(
         app_name="adk-cli",

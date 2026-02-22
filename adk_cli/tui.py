@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
@@ -6,6 +7,8 @@ from textual.binding import Binding
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 
 class Message(Static):
@@ -112,6 +115,7 @@ class ChatScreen(Screen):
         if not self.runner:
             return
 
+        logger.debug(f"--- [Query Processing Started] --- Query: {query}")
         chat_scroll = self.query_one("#chat-scroll", Container)
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
@@ -128,6 +132,7 @@ class ChatScreen(Screen):
                 session_id=self.session_id,
                 new_message=new_message,
             ):
+                logger.debug(f"Received Runner event type: {type(event)}")
                 if event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
@@ -137,6 +142,7 @@ class ChatScreen(Screen):
 
                 if event.get_function_calls():
                     for call in event.get_function_calls():
+                        logger.debug(f"Requesting function call execution: {call.name}")
                         args = call.args or {}
                         args_str = (
                             ", ".join(f"{k}={v!r}" for k, v in args.items())
@@ -150,7 +156,9 @@ class ChatScreen(Screen):
                         )
                         chat_scroll.scroll_end()
 
+            logger.debug("--- [Query Finished Successfully] ---")
         except Exception as e:
+            logger.exception("Error during runner execution:")
             await chat_scroll.mount(Message(f"❌ Error: {str(e)}", role="agent"))
             chat_scroll.scroll_end()
 
