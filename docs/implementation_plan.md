@@ -25,6 +25,22 @@ A terminal user interface (TUI) built with:
 - **Agents**: Specialized sub-agents defined in markdown with their own system prompts and toolsets.
 - **MCP (Model Context Protocol)**: Support for external tool servers.
 
+### 4. Storage & Persistence
+The system uses a layered storage approach to balance global settings with project-specific context:
+- **Global Storage (`~/.gemini/`)**:
+  - `projects.json`: A registry mapping project absolute paths to unique **Short IDs**. This is critical for organizing session history and logs without using long, path-based folder names.
+  - `settings.json`: User-level configuration and globally registered MCP servers.
+  - `mcp-server-enablement.json`: Persistent toggle state for MCP servers.
+  - `mcp-oauth-tokens.json`: Secure storage for tool-related credentials.
+  - `acknowledgments/`: Tracks user approval for running project-specific agents or extensions.
+- **Workspace Storage (`<project-root>/.gemini/`)**:
+  - `settings.json`: Project-specific overrides (e.g., preferred tools, local MCP servers).
+  - `policies/`: Local security rules for tool execution.
+  - `agents/`: Local agent definitions.
+- **Session & History**:
+  - `~/.gemini/history/<short-id>/`: Permanent chat history and telemetry.
+  - `~/.gemini/tmp/<short-id>/`: Volatile state like shell history and checkpoints.
+
 ---
 
 ## Adaptation Plan for google-adk
@@ -41,6 +57,7 @@ A terminal user interface (TUI) built with:
 | `AgentLoader` / Agents (.md) | Model as specialized `google-adk` agents or skills. |
 | `CoreToolScheduler` | Use ADK `SecurityPlugin` with a `CustomPolicyEngine`. |
 | `PromptProvider` | Adopt the snippet-based composition logic in the system instructions. |
+| `Storage` / Persistence | Implement a directory-based storage provider that handles global vs. workspace scopes and project ID mapping. |
 
 ### Proposed Steps for Reproduction
 
