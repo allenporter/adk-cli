@@ -31,3 +31,10 @@
 - [ ] Use `adk-cli` to implement `edit` tool (Diff/Patch)
 - [ ] Enhance TUI with status bars and structured output
 - [ ] Implement full workspace/global storage provider
+
+## Phase 3: Advanced Orchestration (Insights from Claude Code)
+- [ ] Implement multi-phase `discovery` vs. `act` workflow.
+- [ ] Implement `run_subagent` tool and delegate roles (`explorer`, `reviewer`) based on the [Skills vs. Sub-agents Strategy](implementation_plan.md#skills-vs-sub-agents-strategy).
+- [ ] Add external hook support to `SecurityPlugin`.
+- [ ] Implement interactive "Clarification Loop" in the TUI.
+- [ ] Project-level skill discovery from `.adk/skills/`.

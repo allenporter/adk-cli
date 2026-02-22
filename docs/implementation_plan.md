@@ -51,9 +51,46 @@ The "brain" of the application, responsible for:
 | `TUI` | Python **Textual** framework. |
 
 ### Essential Toolset
-#### [NEW] [tools.py](file:///Users/allen/Development/adk-cli/adk_cli/tools.py)
+#### [NEW] [tools.py](adk_cli/tools.py)
 Implementation of ADK tools for filesystem operations:
 - `ls`: List directory contents.
 - `read_file` (or `cat`): Read file content.
 - `write_file`: Create or overwrite files.
 - `grep`: Search for strings within files.
+
+---
+
+## Strategic Insights from Claude Code Analysis
+
+A review of the `claude-code` codebase and its plugin architecture suggests several high-impact features for `adk-cli`:
+
+### 1. Multi-Phase Orchestration
+Complex tasks should be broken down into discrete phases (Discovery -> Exploration -> Architecture -> Implementation -> Review). This reduces "hallucination" and ensures the agent has adequate context before writing code.
+
+### 2. Specialized Personnel (Sub-Agents)
+The use of specialized persona-based agents (`code-explorer`, `code-architect`, `code-reviewer`) can be mapped directly to `google-adk` skills. This allows defining distinct system prompts and tool restrictions for different phases of the development lifecycle.
+
+### 3. Pre-Tool Validation (Hooks)
+Extending the `SecurityPlugin` to support external validation scripts (like `claude-code`'s hooks). These scripts can intercept tool calls to enforce project-specific safety rules or suggest better tool alternatives (e.g., suggesting `ripgrep` over `grep`).
+
+### 4. Interactive Ambiguity Resolution
+Explicitly pausing execution when ambiguities are found during the "Discovery" phase. This "Clarification Loop" ensures that requirements are fully understood before any sensitive operations are performed.
+
+### 5. Seamless Skill Overrides
+Supporting project-level skill discovery in `.adk/skills/`, allowing developers to easily extend the CLI's capabilities with custom, repo-specific agent logic.
+
+---
+
+## Skills vs. Sub-agents Strategy
+
+Choosing between augmenting the main agent (Skills) and delegating to a separate context (Sub-agents) is critical for context hygiene and performance.
+
+| Persona | Implementation | Rationale |
+| :--- | :--- | :--- |
+| **`code-explorer`** | **Sub-agent** | Isolation: Prevents "context pollution" from raw file reads and `ls` outputs. Returns a concise summary to the main agent. |
+| **`code-architect`** | **Skill** | Persistence: The main agent must "live" by these design principles throughout the implementation phase. |
+| **`code-reviewer`** | **Sub-agent** | Objectivity: Provides a "blind" fresh check of the changes without the main agent's intermediate bias. |
+
+### Technical Approach in ADK
+- **Skills**: Augmented into the system prompt of the primary `Runner`.
+- **Sub-agents**: Launched via a `run_subagent` tool which spawns a new `Runner` instance with a separate session and instructions, returning only the resulting "report" to the caller.
