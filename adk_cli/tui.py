@@ -4,7 +4,15 @@ import json
 from typing import Optional, Dict, Any
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Input, Static, Label, Button
+from textual.widgets import (
+    Header,
+    Footer,
+    Input,
+    Static,
+    Label,
+    Button,
+    LoadingIndicator,
+)
 from textual.binding import Binding
 from textual.screen import ModalScreen
 from textual.reactive import reactive
@@ -122,12 +130,14 @@ class Message(Static):
 
     # layout=False (default) avoids an expensive full layout pass on every token.
     text = reactive("")
+    thought = reactive("")
 
-    def __init__(self, text: str, role: str):
+    def __init__(self, text: str, role: str, thought: str = ""):
         super().__init__()
         self.role = role
         self._streaming = False
         self.text = text
+        self.thought = thought
         self.add_class(role)
 
     def start_streaming(self) -> None:
@@ -139,12 +149,21 @@ class Message(Static):
         self._streaming = False
         self.update(self._markdown_renderable())
 
-    def _markdown_renderable(self) -> Markdown:
+    def _markdown_renderable(self) -> Any:
         """Build the full Markdown renderable (used once, when streaming ends)."""
         if self.role == "status":
-            return Markdown(f"*💭 {self.text}*")
+            return f"💭 {self.text}"
+        if self.role == "tool":
+            return f"🛠️  [bold]{self.text}[/bold]"
         prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
-        return Markdown(f"### {prefix}\n\n{self.text}")
+
+        content = ""
+        if self.thought:
+            # We use a blockquote-like style for thinking
+            content += f"> [italic]{self.thought}[/italic]\n\n"
+        content += self.text
+
+        return Markdown(f"### {prefix}\n\n{content}")
 
     def watch_text(self, old_text: str, new_text: str) -> None:
         """Trigger a refresh when the text changes."""
@@ -152,7 +171,19 @@ class Message(Static):
             # Skip markdown parsing while tokens are streaming in — just show
             # plain text so we avoid O(n) re-parsing on every token delta.
             prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
-            self.update(f"{prefix}\n\n{new_text}")
+            content = ""
+            if self.thought:
+                content += f"(Thinking: {self.thought})\n\n"
+            content += new_text
+            self.update(f"{prefix}\n\n{content}")
+        else:
+            self.update(self._markdown_renderable())
+
+    def watch_thought(self, old_thought: str, new_thought: str) -> None:
+        """Trigger a refresh when the thought changes."""
+        if self._streaming:
+            prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
+            self.update(f"{prefix}\n\n(Thinking: {new_thought})\n\n{self.text}")
         else:
             self.update(self._markdown_renderable())
 
@@ -171,7 +202,7 @@ class ChatScreen(Screen):
     #chat-scroll {
         height: 1fr;
         overflow-y: auto;
-        padding: 1;
+        padding: 0 1;
     }
 
     #status-bar {
@@ -187,19 +218,27 @@ class ChatScreen(Screen):
     }
 
     #input-container {
-        height: auto;
+        height: 3;
         border-top: solid #333;
-        padding: 1;
+        background: #1e1e1e;
+        padding: 0 2;
     }
 
     Input {
         border: none;
-        background: #1e1e1e;
+        background: transparent;
+        width: 1fr;
+        height: 1;
+        margin: 1 0;
+        min-width: 0;
+        padding: 0;
     }
 
-    Label {
+    #input-container Label {
         color: #888;
-        padding: 0 1;
+        margin: 1 0;
+        width: auto;
+        padding: 0;
     }
 
     Message {
@@ -214,13 +253,31 @@ class ChatScreen(Screen):
 
     Message.user {
         border-left: solid #28a745;
+        background: #1e1e1e;
     }
 
     Message.status {
-        background: #221100;
+        margin: 0 4;
+        padding: 0 1;
+        background: transparent;
         color: #ffa500;
-        border-left: solid #ffa500;
+        border-left: none;
         opacity: 0.8;
+    }
+
+    Message.tool {
+        margin: 0 4;
+        padding: 0 1;
+        background: transparent;
+        color: #007acc;
+        border-left: none;
+        opacity: 0.9;
+    }
+
+    LoadingIndicator {
+        height: 1;
+        margin: 1 4;
+        color: $primary;
     }
     """
 
@@ -324,6 +381,10 @@ class ChatScreen(Screen):
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
+        indicator = LoadingIndicator()
+        await chat_scroll.mount(indicator)
+        chat_scroll.scroll_end()
+
         # Input text content specifically from the agent/model
         current_agent_message = None
 
@@ -341,7 +402,11 @@ class ChatScreen(Screen):
                     # We check for explicitly 'user' role to skip mounting tool/user response text.
                     role = event.content.role
                     for part in event.content.parts:
-                        if part.text:
+                        # Capture both regular text and thinking process if present
+                        part_text = getattr(part, "text", None)
+                        part_thought = getattr(part, "thought", None)
+
+                        if part_text or part_thought:
                             if role == "user":
                                 logger.debug(
                                     "Skipping text part for agent bubble (explicit user/tool role)"
@@ -352,9 +417,15 @@ class ChatScreen(Screen):
                                 logger.debug("Initializing new agent message bubble")
                                 current_agent_message = Message("", role="agent")
                                 current_agent_message.start_streaming()
-                                await chat_scroll.mount(current_agent_message)
+                                # Mount before the indicator to keep indicator at the bottom
+                                await chat_scroll.mount(
+                                    current_agent_message, before=indicator
+                                )
 
-                            current_agent_message.text += part.text
+                            if part_thought:
+                                current_agent_message.thought += part_thought
+                            if part_text:
+                                current_agent_message.text += part_text
                     # Scroll once per event, not per individual text part.
                     if current_agent_message is not None:
                         chat_scroll.scroll_end()
@@ -383,16 +454,20 @@ class ChatScreen(Screen):
                             )
                             continue
 
-                        args = call.args or {}
-                        args_str = (
-                            ", ".join(f"{k}={v!r}" for k, v in args.items())
-                            if isinstance(args, dict)
-                            else str(args)
-                        )
-                        await chat_scroll.mount(
-                            Message(
-                                f"🛠️ Executing: {call.name}({args_str})", role="agent"
+                        # Use a more compact tool display
+                        display_name: str = str(call.name)
+                        if call.name == "bash" and call.args:
+                            cmd = str(call.args.get("command", ""))
+                            # Truncate command for display
+                            display_name = (
+                                f"bash: {cmd[:50]}{'...' if len(cmd) > 50 else ''}"
                             )
+                        elif call.args and "path" in call.args:
+                            path_val = call.args.get("path")
+                            display_name = f"{call.name}: {path_val}"
+
+                        await chat_scroll.mount(
+                            Message(display_name, role="tool"), before=indicator
                         )
                         chat_scroll.scroll_end()
 
@@ -404,8 +479,12 @@ class ChatScreen(Screen):
             chat_scroll.scroll_end()
         except Exception as e:
             logger.exception("Error during runner execution:")
-            await chat_scroll.mount(Message(f"❌ Error: {str(e)}", role="agent"))
+            await chat_scroll.mount(
+                Message(f"❌ Error: {str(e)}", role="agent"), before=indicator
+            )
             chat_scroll.scroll_end()
+        finally:
+            await indicator.remove()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
