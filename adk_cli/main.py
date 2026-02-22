@@ -14,6 +14,7 @@ from google.adk.runners import Runner
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
 from google.adk.tools.skill_toolset import SkillToolset
+from google.adk.apps.app import App, EventsCompactionConfig
 
 from adk_cli.policy import SecurityPlugin, CustomPolicyEngine, PermissionMode
 from adk_cli.retry_gemini import AdkRetryGemini
@@ -448,14 +449,28 @@ def _build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Runne
     policy_engine = CustomPolicyEngine(mode=permission_mode)
     security_plugin = SecurityPlugin(policy_engine=policy_engine)
 
+    # Configure session compaction to manage context growth.
+    # We use a combination of sliding window and token-based compaction.
+    compaction_config = EventsCompactionConfig(
+        compaction_interval=5,  # Compact every 5 turns
+        overlap_size=1,  # Keep 1 turn of overlap for continuity
+        token_threshold=50000,  # Also compact if we hit 50k tokens
+        event_retention_size=10,  # Keep at least 10 raw events
+    )
+
+    app = App(
+        name="adk_cli",
+        root_agent=agent,
+        plugins=[security_plugin],
+        events_compaction_config=compaction_config,
+    )
+
     db_path = str(get_session_db_path())
     session_service = SqliteSessionService(db_path=db_path)
 
     return Runner(
-        app_name="adk-cli",
-        agent=agent,
+        app=app,
         session_service=session_service,
-        plugins=[security_plugin],
         auto_create_session=True,
     )
 
