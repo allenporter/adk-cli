@@ -26,7 +26,7 @@ We need to implement/port the following tools to the CLI's internal agent:
 - `read_file`: Use ADK's file tools.
 - `write_file`: Use ADK's file tools.
 - `edit_file`: Patch-based approach for direct file modification.
-- **`bash` (or `shell`)**: Command execution with security guards.
+- [x] **`bash` (or `shell`)**: Command execution with security guards.
     - Supports `stdout` and `stderr` capture.
     - Implements output summarization (max ~10k chars) to prevent context blowouts.
     - Integrated with `CustomPolicyEngine` for per-command user approval.

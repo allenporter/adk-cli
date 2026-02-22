@@ -93,6 +93,40 @@ def grep(pattern: str, directory: str = ".", recursive: bool = True) -> str:
         return f"Error running grep: {str(e)}"
 
 
+def bash(command: str, cwd: str = ".") -> str:
+    """
+    Executes a shell command and returns the combined stdout and stderr.
+    The output is truncated if it exceeds 10,000 characters.
+    """
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        combined_output = (result.stdout or "") + (
+            f"\n--- STDERR ---\n{result.stderr}" if result.stderr else ""
+        )
+
+        if not combined_output.strip():
+            return "Command executed successfully with no output."
+
+        max_chars = 10000
+        if len(combined_output) > max_chars:
+            truncation_msg = f"\n\n[Output truncated from {len(combined_output)} characters to {max_chars}]"
+            return combined_output[:max_chars] + truncation_msg
+
+        return combined_output
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 300 seconds."
+    except Exception as e:
+        return f"Error executing command: {str(e)}"
+
+
 def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
     """
     Returns a list of FunctionTool instances for essential filesystem operations.
@@ -103,4 +137,5 @@ def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:
         FunctionTool(write_file),
         FunctionTool(edit_file),
         FunctionTool(grep),
+        FunctionTool(bash),
     ]

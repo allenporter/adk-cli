@@ -23,6 +23,7 @@
     - [/] Port/Enable `read_file`
     - [/] Port/Enable `write_file`
     - [/] Port/Enable `grep`/`find`
+    - [x] Port/Enable `bash`
 - [ ] Basic Persistence
     - [ ] Simple Short ID mapping
     - [ ] Basic settings loading
