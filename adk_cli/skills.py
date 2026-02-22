@@ -86,7 +86,9 @@ def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
     )
 
 
-def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
+def discover_skills(
+    cwd: Optional[Path] = None, *, include_builtin: bool = True
+) -> list[Skill]:
     """Discover all skills from workspace directories at or above cwd.
 
     Searches each ancestor directory (starting from cwd) for skill files
@@ -96,6 +98,7 @@ def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
 
     Args:
         cwd: The starting directory. Defaults to the current working directory.
+        include_builtin: Whether to include built-in skills.
 
     Returns:
         List of loaded Skill objects, deduplicated by skill name (first found wins).
@@ -150,5 +153,29 @@ def discover_skills(cwd: Optional[Path] = None) -> list[Skill]:
                 seen_names.add(skill.name)
                 skills.append(skill)
                 logger.debug("Loaded skill '%s' from %s", skill.name, skill_md)
+
+    # Search for built-in skills packaged with adk-cli.
+    if include_builtin:
+        builtin_dir = Path(__file__).parent / "skills" / "builtin"
+        if builtin_dir.is_dir():
+            for skill_folder in sorted(builtin_dir.iterdir()):
+                if not skill_folder.is_dir():
+                    continue
+                skill_md = skill_folder / "SKILL.md"
+                if not skill_md.is_file():
+                    continue
+                skill = load_skill_from_dir(skill_md)
+                if skill is None:
+                    continue
+                if skill.name in seen_names:
+                    logger.debug(
+                        "Skipping duplicate built-in skill '%s' from %s",
+                        skill.name,
+                        skill_md,
+                    )
+                    continue
+                seen_names.add(skill.name)
+                skills.append(skill)
+                logger.debug("Loaded built-in skill '%s' from %s", skill.name, skill_md)
 
     return skills

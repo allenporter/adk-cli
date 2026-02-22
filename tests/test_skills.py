@@ -122,7 +122,7 @@ def test_load_skill_optional_fields(tmp_path: Path) -> None:
 
 def test_discover_skills_finds_skill_in_agent_dir(workspace: Path) -> None:
     _make_skill(workspace, "developer")
-    skills = discover_skills(workspace)
+    skills = discover_skills(workspace, include_builtin=False)
     assert len(skills) == 1
     assert skills[0].name == "developer"
 
@@ -131,14 +131,14 @@ def test_discover_skills_all_four_dir_patterns(workspace: Path) -> None:
     dir_names = [".agent", ".agents", ".gemini", ".claude"]
     for i, dir_name in enumerate(dir_names):
         _make_skill(workspace, f"skill-{i}", dir_name=dir_name)
-    skills = discover_skills(workspace)
+    skills = discover_skills(workspace, include_builtin=False)
     assert len(skills) == 4
 
 
 def test_discover_skills_deduplicates_by_name(workspace: Path) -> None:
     for dir_name in [".agent", ".agents"]:
         _make_skill(workspace, "duplicate", dir_name=dir_name)
-    skills = discover_skills(workspace)
+    skills = discover_skills(workspace, include_builtin=False)
     assert len(skills) == 1
 
 
@@ -152,7 +152,7 @@ def test_discover_skills_finds_skills_in_ancestors(tmp_path: Path) -> None:
     subdir.mkdir()
     _make_skill(subdir, "sub-skill")
 
-    skills = discover_skills(subdir)
+    skills = discover_skills(subdir, include_builtin=False)
     names = {s.name for s in skills}
     assert "sub-skill" in names
     assert "root-skill" in names
@@ -171,7 +171,7 @@ def test_discover_skills_stops_at_git_root(tmp_path: Path) -> None:
     cwd = parent / "src"
     cwd.mkdir()
 
-    skills = discover_skills(cwd)
+    skills = discover_skills(cwd, include_builtin=False)
     names = {s.name for s in skills}
     assert "parent-skill" in names
     assert "grandparent-skill" not in names
@@ -179,11 +179,11 @@ def test_discover_skills_stops_at_git_root(tmp_path: Path) -> None:
 
 def test_discover_skills_empty_skills_dir(workspace: Path) -> None:
     (workspace / ".agent" / "skills").mkdir(parents=True)
-    assert discover_skills(workspace) == []
+    assert discover_skills(workspace, include_builtin=False) == []
 
 
 def test_discover_skills_no_skill_dirs(workspace: Path) -> None:
-    assert discover_skills(workspace) == []
+    assert discover_skills(workspace, include_builtin=False) == []
 
 
 def test_discover_skills_defaults_to_cwd(
@@ -193,3 +193,9 @@ def test_discover_skills_defaults_to_cwd(
     monkeypatch.chdir(workspace)
     skills = discover_skills()
     assert any(s.name == "cwd-skill" for s in skills)
+
+
+def test_discover_skills_finds_builtin_skill() -> None:
+    skills = discover_skills()
+    # skill-creator is a builtin skill
+    assert any(s.name == "skill-creator" for s in skills)
