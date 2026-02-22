@@ -271,6 +271,58 @@ def sessions() -> None:
     pass
 
 
+@cli.group()
+def config() -> None:
+    """Manage global settings."""
+    pass
+
+
+@config.command(name="list")
+def list_config_cmd() -> None:
+    """List all global settings."""
+    from adk_cli.settings import load_settings
+
+    settings = load_settings()
+    if not settings:
+        click.echo("No settings found.")
+        return
+    for k, v in settings.items():
+        click.echo(f"{k}: {v}")
+
+
+@config.command(name="get")
+@click.argument("key")
+def get_config_cmd(key: str) -> None:
+    """Get a global setting."""
+    from adk_cli.settings import load_settings
+
+    settings = load_settings()
+    if key in settings:
+        click.echo(settings[key])
+    else:
+        click.echo(f"Key '{key}' not found.")
+
+
+@config.command(name="set")
+@click.argument("key")
+@click.argument("value")
+def set_config_cmd(key: str, value: str) -> None:
+    """Set a global setting."""
+    from adk_cli.settings import load_settings, save_settings
+
+    settings = load_settings()
+    # Try to parse as JSON if it looks like it, otherwise keep as string
+    try:
+        import json
+
+        parsed_value = json.loads(value)
+    except Exception:
+        parsed_value = value
+    settings[key] = parsed_value
+    save_settings(settings)
+    click.echo(f"Set {key} to {value}")
+
+
 @sessions.command(name="list")
 @click.option("--all", is_flag=True, help="List sessions across all projects.")
 def list_sessions_cmd(all: bool) -> None:
@@ -353,6 +405,12 @@ def build_adk_agent(model: str | None = None) -> LlmAgent:
         http_status_codes=[],
     )
 
+    if model is None:
+        from adk_cli.settings import load_settings
+
+        settings = load_settings()
+        model = settings.get("default_model")
+
     llm_model = AdkRetryGemini(
         model=model or DEFAULT_MODEL, retry_options=retry_options
     )
@@ -377,7 +435,14 @@ def _build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Runne
     # Create the agent lazily after api key setup
     agent = build_adk_agent(model)
 
-    mode_str = ctx.parent.params.get("permission_mode", "ask") if ctx.parent else "ask"
+    from adk_cli.settings import load_settings
+
+    settings = load_settings()
+
+    mode_str = ctx.parent.params.get("permission_mode") if ctx.parent else None
+    if mode_str is None:
+        mode_str = settings.get("permission_mode", "ask")
+
     permission_mode = PermissionMode(mode_str)
 
     policy_engine = CustomPolicyEngine(mode=permission_mode)

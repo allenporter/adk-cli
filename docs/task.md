@@ -24,12 +24,13 @@
     - [x] Port/Enable `write_file`
     - [x] Port/Enable `grep`/`find`
     - [x] Port/Enable `bash`
-- [/] Persistent Storage & Project Context (Completed)
+- [x] Persistent Storage & Project Context (Completed)
     - [x] Implement `get_adk_home()` and ensure `~/.adk/` exists
     - [x] Implement Project Registry (`projects.json`) to track workspace roots and generate Short IDs
     - [x] Replace `InMemorySessionService` with `SqliteSessionService` using `~/.adk/sessions.db`
     - [x] Update CLI to auto-detect the project and resume the most recent session for that project by default
     - [x] Add CLI commands to list and delete sessions
+    - [x] Implement `config` command to manage global settings
     - [x] Verify persistence: Ensure the agent remembers context across restarts
 
 ## Phase 2: Self-Building
