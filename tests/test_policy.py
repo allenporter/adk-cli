@@ -89,3 +89,28 @@ async def test_policy_already_confirmed(
     )
 
     assert result is None  # Should be allowed if already confirmed
+
+
+async def test_policy_safe_bash_command(mock_tool_context: MagicMock) -> None:
+    engine = CustomPolicyEngine(mode=PermissionMode.ASK)
+    plugin = SecurityPlugin(engine)
+
+    mock_bash_tool = MagicMock(spec=BaseTool)
+    mock_bash_tool.name = "bash"
+
+    # Test a safe command
+    result = await plugin.before_tool_callback(
+        tool=mock_bash_tool,
+        tool_args={"command": "git status"},
+        tool_context=mock_tool_context,
+    )
+    assert result is None
+
+    # Test an unsafe command
+    result = await plugin.before_tool_callback(
+        tool=mock_bash_tool,
+        tool_args={"command": "rm -rf /"},
+        tool_context=mock_tool_context,
+    )
+    assert result is not None
+    assert "Confirmation required" in result["error"]

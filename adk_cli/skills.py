@@ -19,7 +19,7 @@ from google.adk.skills import Frontmatter, Resources, Skill
 logger = logging.getLogger(__name__)
 
 # Workspace directory names to search for skills.
-SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude"]
+SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude", ".adk"]
 
 # Files that indicate a workspace root (stop searching upward past this).
 _WORKSPACE_ROOT_MARKERS = [".git", "pyproject.toml", "package.json", "setup.py"]

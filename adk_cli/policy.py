@@ -19,6 +19,24 @@ READ_ONLY_TOOLS = {
     "find",
     "find_by_name",
     "read_url_content",
+    "read_many_files",
+    "load_skill",
+    "load_skill_resource",
+}
+
+SAFE_BASH_COMMANDS = {
+    "git status",
+    "git log",
+    "git diff",
+    "git branch",
+    "pwd",
+    "whoami",
+    "hostname",
+    "python --version",
+    "python3 --version",
+    "pip --version",
+    "uv --version",
+    "date",
 }
 
 
@@ -93,6 +111,13 @@ class CustomPolicyEngine(BasePolicyEngine):
             return PolicyCheckResult(
                 outcome=PolicyOutcome.ALLOW, reason="Read-only operation"
             )
+
+        if tool_name == "bash":
+            cmd = tool_args.get("command", "").strip()
+            if cmd in SAFE_BASH_COMMANDS:
+                return PolicyCheckResult(
+                    outcome=PolicyOutcome.ALLOW, reason="Safe bash command"
+                )
 
         if self.mode == PermissionMode.PLAN:
             # In 'plan' mode, we might want to confirm everything or just log it.
