@@ -235,8 +235,32 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                 if event.content and event.content.parts:
                     role = event.content.role
                     for part in event.content.parts:
-                        if part.text and role != "user":
-                            click.echo(part.text, nl=False)
+                        # Avoid warn about non-text parts in the response by checking types
+                        if not part.function_call and not part.function_response:
+                            if hasattr(part, "thought") and part.thought:
+                                click.echo(f"\n[Thinking: {part.thought}]")
+                            if hasattr(part, "text") and part.text:
+                                if role != "user":
+                                    click.echo(part.text, nl=False)
+
+                        if part.function_response:
+                            resp_data = part.function_response.response
+                            if resp_data:
+                                result = (
+                                    resp_data.get("result")
+                                    or resp_data.get("output")
+                                    or str(resp_data)
+                                )
+                                if isinstance(result, str):
+                                    # Truncate very long tool result for print mode display
+                                    if len(result) > 500:
+                                        result = (
+                                            result[:500]
+                                            + "\n... (tool output truncated) ..."
+                                        )
+                                    click.echo(
+                                        f"\n--- Tool Output ---\n{result}\n-------------------"
+                                    )
                 if event.get_function_calls():
                     for call in event.get_function_calls():
                         logger.debug(
@@ -244,16 +268,20 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                         )
                         if call.name == "adk_request_confirmation":
                             logger.debug(
-                                f"Skipping display of ADK confirmation call: {call.name}"
+                                f"Sync Requesting function call execution: {call.name}"
                             )
-                            continue
-                        args = call.args or {}
-                        args_str = (
-                            ", ".join(f"{k}={v!r}" for k, v in args.items())
-                            if isinstance(args, dict)
-                            else str(args)
-                        )
-                        click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
+                            if call.name == "adk_request_confirmation":
+                                logger.debug(
+                                    f"Skipping display of ADK confirmation call: {call.name}"
+                                )
+                                continue
+                            args = call.args or {}
+                            args_str = (
+                                ", ".join(f"{k}={v!r}" for k, v in args.items())
+                                if isinstance(args, dict)
+                                else str(args)
+                            )
+                            click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
         logger.debug("--- [CLI One-off query finished] ---")
         click.echo()
     else:

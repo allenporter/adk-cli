@@ -56,29 +56,41 @@ def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
     Line numbers are 1-indexed.
     """
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        if not os.path.isfile(path):
+            return f"Error: {path} is not a file."
 
-        total_lines = len(lines)
+        # Open file without loading everything into memory
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = []
+            broken_early = False
 
-        if start_line < 1:
-            start_line = 1
-
-        if end_line is None:
             # Default to showing 1000 lines if no end_line is specified
-            end_line = min(start_line + 999, total_lines)
+            effective_end = end_line if end_line is not None else start_line + 999
 
-        if end_line > total_lines:
-            end_line = total_lines
+            for i, line in enumerate(f, 1):
+                if i >= start_line:
+                    if i > effective_end:
+                        broken_early = True
+                        break
+                    lines.append(line)
 
-        if start_line > total_lines:
-            return f"Error: start_line ({start_line}) is greater than total lines ({total_lines})"
+            # If we didn't break early, check if there's at least one more line to flag truncation
+            if not broken_early:
+                try:
+                    next_line = next(f, None)
+                    if next_line is not None:
+                        broken_early = True
+                except (StopIteration, UnicodeDecodeError):
+                    pass
 
-        selected_lines = lines[start_line - 1 : end_line]
-        content = "".join(selected_lines)
+        if not lines:
+            if start_line > 1:
+                return f"Error: file has fewer than {start_line} lines."
+            return "(empty file)"
 
-        if end_line < total_lines:
-            content += f"\n\n[Output truncated. Showing lines {start_line}-{end_line} of {total_lines}. Use start_line and end_line to read more.]"
+        content = "".join(lines)
+        if broken_early:
+            content += f"\n\n[Output truncated. Showing lines {start_line}-{effective_end}. Use start_line and end_line to read more.]"
 
         return content
     except UnicodeDecodeError:
@@ -124,7 +136,7 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
         if not os.path.exists(path):
             return f"Error: File not found at {path}"
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         occurrences = content.count(search_text)
@@ -159,15 +171,40 @@ def grep(
     context_lines: Number of lines of leading and trailing context to show.
     """
     try:
+        # Avoid common noise directories to speed up searches and reduce context pollution
+        exclude_dirs = [
+            ".git",
+            ".adk",
+            ".venv",
+            "venv",
+            "node_modules",
+            "__pycache__",
+            "build",
+            "dist",
+        ]
+
         cmd = ["grep", "-n"]
         if recursive:
             cmd.append("-r")
         if context_lines > 0:
             cmd.append(f"-C{context_lines}")
-        cmd.extend([pattern, directory])
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        output = result.stdout if result.stdout else "No matches found."
+        for d in exclude_dirs:
+            # Use --exclude-dir which is supported by GNU grep on Linux
+            cmd.append(f"--exclude-dir={d}")
+
+        # Use -- before the pattern to handle cases where it starts with hyphen
+        cmd.extend(["--", pattern, directory])
+
+        # Add a reasonable timeout to prevent hanging on huge project trees
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        output = result.stdout
+        if not output and result.stderr:
+            return f"Error running grep: {result.stderr}"
+
+        if not output:
+            return "No matches found."
 
         max_chars = 15000
         if len(output) > max_chars:
@@ -177,6 +214,8 @@ def grep(
             return output[:max_chars] + truncation_msg
 
         return output
+    except subprocess.TimeoutExpired:
+        return "Error: grep command timed out after 60 seconds."
     except Exception as e:
         return f"Error running grep: {str(e)}"
 

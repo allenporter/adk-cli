@@ -51,7 +51,7 @@ def test_cat_truncation(tmp_path):
     assert "line 1" in output
     assert "line 1000" in output
     assert "line 1001" not in output
-    assert "[Output truncated. Showing lines 1-1000 of 1500" in output
+    assert "[Output truncated. Showing lines 1-1000" in output
 
     # Range-based cat
     output = cat("large.txt", start_line=1001, end_line=1500)

@@ -403,8 +403,14 @@ class ChatScreen(Screen):
                     role = event.content.role
                     for part in event.content.parts:
                         # Capture both regular text and thinking process if present
-                        part_text = getattr(part, "text", None)
-                        part_thought = getattr(part, "thought", None)
+                        # We specifically check for the existence of the field to avoid
+                        # warnings from the SDK when accessing .text on function_call parts.
+                        part_text = None
+                        part_thought = None
+
+                        if not part.function_call and not part.function_response:
+                            part_text = getattr(part, "text", None)
+                            part_thought = getattr(part, "thought", None)
 
                         if part_text or part_thought:
                             if role == "user":
@@ -426,6 +432,24 @@ class ChatScreen(Screen):
                                 current_agent_message.thought += part_thought
                             if part_text:
                                 current_agent_message.text += part_text
+
+                        if part.function_response:
+                            # We show the tool's output to the user so they can see what happened.
+                            # The response is usually a dictionary.
+                            resp_data = part.function_response.response
+                            if resp_data:
+                                # Often the result is in a 'result' or 'output' key
+                                result = (
+                                    resp_data.get("result")
+                                    or resp_data.get("output")
+                                    or str(resp_data)
+                                )
+                                if isinstance(result, str):
+                                    # Mount a subtle status-like message for the tool result
+                                    await chat_scroll.mount(
+                                        Message(result, role="status"), before=indicator
+                                    )
+                                    chat_scroll.scroll_end()
                     # Scroll once per event, not per individual text part.
                     if current_agent_message is not None:
                         chat_scroll.scroll_end()
