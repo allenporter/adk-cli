@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import click
 import asyncio
 import uuid
@@ -23,6 +24,7 @@ from adk_cli.tools import get_essential_tools
 from adk_cli.api_key import load_api_key, load_env_file
 from adk_cli.skills import discover_skills
 from adk_cli.projects import find_project_root, get_project_id, get_session_db_path
+from adk_cli.settings import load_settings, load_global_settings, save_settings
 
 logger = logging.getLogger(__name__)
 
@@ -280,10 +282,11 @@ def config() -> None:
 
 @config.command(name="list")
 def list_config_cmd() -> None:
-    """List all global settings."""
-    from adk_cli.settings import load_settings
+    """List effective configurations.
 
-    settings = load_settings()
+    Shows a merged view where local project settings override global tool settings.
+    """
+    settings = load_settings(find_project_root())
     if not settings:
         click.echo("No settings found.")
         return
@@ -294,10 +297,8 @@ def list_config_cmd() -> None:
 @config.command(name="get")
 @click.argument("key")
 def get_config_cmd(key: str) -> None:
-    """Get a global setting."""
-    from adk_cli.settings import load_settings
-
-    settings = load_settings()
+    """Get the effective configuration for the given key."""
+    settings = load_settings(find_project_root())
     if key in settings:
         click.echo(settings[key])
     else:
@@ -308,20 +309,20 @@ def get_config_cmd(key: str) -> None:
 @click.argument("key")
 @click.argument("value")
 def set_config_cmd(key: str, value: str) -> None:
-    """Set a global setting."""
-    from adk_cli.settings import load_settings, save_settings
+    """Set a global tool configuration.
 
-    settings = load_settings()
+    The change is saved to ~/.adk/settings.json. Project-level overrides
+    must be managed via manual file edits or environment variables.
+    """
+    settings = load_global_settings()
     # Try to parse as JSON if it looks like it, otherwise keep as string
     try:
-        import json
-
         parsed_value = json.loads(value)
     except Exception:
         parsed_value = value
     settings[key] = parsed_value
     save_settings(settings)
-    click.echo(f"Set {key} to {value}")
+    click.echo(f"Set global {key} to {value}")
 
 
 @sessions.command(name="list")
@@ -407,9 +408,7 @@ def build_adk_agent(model: str | None = None) -> LlmAgent:
     )
 
     if model is None:
-        from adk_cli.settings import load_settings
-
-        settings = load_settings()
+        settings = load_settings(find_project_root())
         model = settings.get("default_model")
 
     llm_model = AdkRetryGemini(
@@ -436,9 +435,7 @@ def _build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Runne
     # Create the agent lazily after api key setup
     agent = build_adk_agent(model)
 
-    from adk_cli.settings import load_settings
-
-    settings = load_settings()
+    settings = load_settings(find_project_root())
 
     mode_str = ctx.parent.params.get("permission_mode") if ctx.parent else None
     if mode_str is None:

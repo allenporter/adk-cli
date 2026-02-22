@@ -73,3 +73,23 @@ def test_save_and_load_round_trip(tmp_path: Path) -> None:
         loaded = load_settings()
 
     assert loaded == original
+
+
+def test_load_settings_merges_local_overrides(tmp_path: Path) -> None:
+    global_path = tmp_path / "global.json"
+    global_path.write_text(json.dumps({"a": 1, "b": 2}))
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    local_path = project_root / ".adk" / "settings.json"
+    local_path.parent.mkdir()
+    local_path.write_text(json.dumps({"b": 3, "c": 4}))
+
+    with (
+        patch("adk_cli.settings.get_global_settings_path", return_value=global_path),
+        patch("adk_cli.settings.get_local_settings_path", return_value=local_path),
+    ):
+        result = load_settings(project_root)
+
+    # b should be overridden by local, a/c should be merged
+    assert result == {"a": 1, "b": 3, "c": 4}

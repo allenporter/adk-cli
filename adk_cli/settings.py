@@ -23,16 +23,42 @@ def get_global_settings_path() -> Path:
     return get_global_adk_dir() / "settings.json"
 
 
-def load_settings() -> dict[str, Any]:
-    """Load settings from the global settings file.
+def get_local_settings_path(project_root: Path) -> Path:
+    """Return the path to the local settings file (<project-root>/.adk/settings.json)."""
+    return project_root / ADK_DIR / "settings.json"
 
-    Returns an empty dict if the file doesn't exist yet.
+
+def load_settings(project_root: Path | None = None) -> dict[str, Any]:
+    """Load settings by merging global settings with project-specific overrides.
+
+    If project_root is provided, local settings in <project-root>/.adk/settings.json
+    override global settings in ~/.adk/settings.json.
     """
-    settings_path = get_global_settings_path()
-    if not settings_path.exists():
+    settings = load_global_settings()
+
+    if project_root:
+        local_settings = load_local_settings(project_root)
+        settings.update(local_settings)
+
+    return settings
+
+
+def load_global_settings() -> dict[str, Any]:
+    """Load settings from the global settings file (~/.adk/settings.json)."""
+    return _load_file(get_global_settings_path())
+
+
+def load_local_settings(project_root: Path) -> dict[str, Any]:
+    """Load settings from a local settings file (<project-root>/.adk/settings.json)."""
+    return _load_file(get_local_settings_path(project_root))
+
+
+def _load_file(path: Path) -> dict[str, Any]:
+    """Helper to load a JSON file."""
+    if not path.exists():
         return {}
     try:
-        content = settings_path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="utf-8")
         result: dict[str, Any] = json.loads(content)
         return result
     except (json.JSONDecodeError, OSError):
@@ -40,13 +66,14 @@ def load_settings() -> dict[str, Any]:
 
 
 def save_settings(settings: dict[str, Any]) -> None:
-    """Persist settings to the global settings file.
+    """Persist settings to the global settings file (~/.adk/settings.json).
 
-    Creates the directory if it doesn't exist.
+    adk-cli CLI commands exclusively manage global settings.
+    Local overrides must be edited manually in the project directory.
     """
-    settings_path = get_global_settings_path()
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
+    path = get_global_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(settings, indent=2) + "\n",
         encoding="utf-8",
     )
