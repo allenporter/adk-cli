@@ -137,8 +137,16 @@ class ChatScreen(Screen):  # type: ignore[type-arg]
 
                 if event.get_function_calls():
                     for call in event.get_function_calls():
+                        args = call.args or {}
+                        args_str = (
+                            ", ".join(f"{k}={v!r}" for k, v in args.items())
+                            if isinstance(args, dict)
+                            else str(args)
+                        )
                         await chat_scroll.mount(
-                            Message(f"🛠️ Executing: {call.name}", role="agent")
+                            Message(
+                                f"🛠️ Executing: {call.name}({args_str})", role="agent"
+                            )
                         )
                         chat_scroll.scroll_end()
 

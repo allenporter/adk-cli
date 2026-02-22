@@ -18,7 +18,7 @@ from adk_cli.skills import discover_skills, build_skills_instruction
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 
 _NO_KEY_MESSAGE = """\
 Error: No Gemini API key found.
@@ -151,7 +151,13 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                         click.echo(part.text, nl=False)
             if event.get_function_calls():
                 for call in event.get_function_calls():
-                    click.echo(f"\n🛠️ Executing: {call.name}")
+                    args = call.args or {}
+                    args_str = (
+                        ", ".join(f"{k}={v!r}" for k, v in args.items())
+                        if isinstance(args, dict)
+                        else str(args)
+                    )
+                    click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
         click.echo()
     else:
         runner = _build_runner_or_exit(ctx)
