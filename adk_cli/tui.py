@@ -24,6 +24,7 @@ from rich.syntax import Syntax
 
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.status import status_manager
+from adk_cli.summarize import summarize_tool_call, summarize_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,8 @@ class ConfirmationModal(ModalScreen[bool]):
 
             if self.tool_name:
                 with Vertical(id="tool-info"):
-                    yield Label(f"Tool: [bold]{self.tool_name}[/bold]")
+                    summary = summarize_tool_call(self.tool_name, self.tool_args or {})
+                    yield Label(f"🛠️ [bold]{summary}[/bold]")
 
                     if self.tool_args:
                         args_json = json.dumps(self.tool_args, indent=2)
@@ -387,6 +389,8 @@ class ChatScreen(Screen):
 
         # Input text content specifically from the agent/model
         current_agent_message = None
+        # Keep track of tool call arguments so we can summarize the results correctly
+        pending_args: Dict[Optional[str], Dict[str, Any]] = {}
 
         new_message = types.Content(role="user", parts=[types.Part(text=query)])
 
@@ -434,22 +438,27 @@ class ChatScreen(Screen):
                                 current_agent_message.text += part_text
 
                         if part.function_response:
-                            # We show the tool's output to the user so they can see what happened.
-                            # The response is usually a dictionary.
+                            # We show a clean summary of what the tool achieved.
                             resp_data = part.function_response.response
                             if resp_data:
-                                # Often the result is in a 'result' or 'output' key
-                                result = (
+                                call_name = part.function_response.name or "unknown"
+                                # Use stored arguments for better context
+                                call_args = pending_args.get(call_name, {})
+
+                                result_raw = (
                                     resp_data.get("result")
                                     or resp_data.get("output")
                                     or str(resp_data)
                                 )
-                                if isinstance(result, str):
-                                    # Mount a subtle status-like message for the tool result
-                                    await chat_scroll.mount(
-                                        Message(result, role="status"), before=indicator
-                                    )
-                                    chat_scroll.scroll_end()
+                                summary = summarize_tool_result(
+                                    call_name, call_args, str(result_raw)
+                                )
+
+                                await chat_scroll.mount(
+                                    Message(f"✅ {summary}", role="status"),
+                                    before=indicator,
+                                )
+                                chat_scroll.scroll_end()
                     # Scroll once per event, not per individual text part.
                     if current_agent_message is not None:
                         chat_scroll.scroll_end()
@@ -467,6 +476,10 @@ class ChatScreen(Screen):
                     for call in event.get_function_calls():
                         logger.debug(f"Requesting function call execution: {call.name}")
 
+                        # Store arguments for later result summarization
+                        call_name = call.name or "unknown"
+                        pending_args[call_name] = call.args or {}
+
                         # ADK emits an internal confirmation function call when
                         # tool_context.request_confirmation() is used. Since the
                         # ConfirmationModal already provides the UI for this interaction,
@@ -478,17 +491,10 @@ class ChatScreen(Screen):
                             )
                             continue
 
-                        # Use a more compact tool display
-                        display_name: str = str(call.name)
-                        if call.name == "bash" and call.args:
-                            cmd = str(call.args.get("command", ""))
-                            # Truncate command for display
-                            display_name = (
-                                f"bash: {cmd[:50]}{'...' if len(cmd) > 50 else ''}"
-                            )
-                        elif call.args and "path" in call.args:
-                            path_val = call.args.get("path")
-                            display_name = f"{call.name}: {path_val}"
+                        # Use a more descriptive tool display
+                        display_name: str = summarize_tool_call(
+                            call_name, call.args or {}
+                        )
 
                         await chat_scroll.mount(
                             Message(display_name, role="tool"), before=indicator

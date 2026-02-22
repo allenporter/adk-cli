@@ -6,6 +6,7 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
 from adk_cli.confirmation import confirmation_manager
+from adk_cli.summarize import summarize_tool_call
 
 # Tools that are considered safe and don't require confirmation in 'ask' mode
 READ_ONLY_TOOLS = {
@@ -79,25 +80,8 @@ class CustomPolicyEngine(BasePolicyEngine):
     def _format_reason(
         self, prefix: str, tool_name: str, tool_args: Dict[str, Any]
     ) -> str:
-        reason = f"{prefix}: {tool_name}"
-
-        # Extract key arguments to surface in the confirmation dialog
-        key_args = []
-        if "path" in tool_args:
-            key_args.append(f"path='{tool_args['path']}'")
-        elif "directory" in tool_args:
-            key_args.append(f"dir='{tool_args['directory']}'")
-
-        if "command" in tool_args:
-            key_args.append(f"cmd='{tool_args['command']}'")
-
-        if "pattern" in tool_args:
-            key_args.append(f"pattern='{tool_args['pattern']}'")
-
-        if key_args:
-            reason += f" ({', '.join(key_args)})"
-
-        return reason
+        summary = summarize_tool_call(tool_name, tool_args)
+        return f"{prefix}: {summary}"
 
     async def evaluate(
         self, tool_name: str, tool_args: Dict[str, Any]

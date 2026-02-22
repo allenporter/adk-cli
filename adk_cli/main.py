@@ -5,7 +5,7 @@ import click
 import asyncio
 import uuid
 from click import Command
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -26,6 +26,7 @@ from adk_cli.skills import discover_skills
 from adk_cli.projects import find_project_root, get_project_id, get_session_db_path
 from adk_cli.status import is_session_locked, SessionLock
 from adk_cli.settings import load_settings, load_global_settings, save_settings
+from adk_cli.summarize import summarize_tool_call, summarize_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,9 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
             )
             logger.debug(f"Executing one-off query in print mode: {query_str}")
             new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
+            # Keep track of tool call arguments so we can summarize the results correctly
+            pending_args: Dict[Optional[str], Dict[str, Any]] = {}
+
             for event in runner.run(
                 user_id=project_id, session_id=session_id, new_message=new_message
             ):
@@ -246,42 +250,37 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                         if part.function_response:
                             resp_data = part.function_response.response
                             if resp_data:
-                                result = (
+                                call_name = part.function_response.name or "unknown"
+                                # Use stored arguments for better context
+                                call_args = pending_args.get(call_name, {})
+
+                                result_raw = (
                                     resp_data.get("result")
                                     or resp_data.get("output")
                                     or str(resp_data)
                                 )
-                                if isinstance(result, str):
-                                    # Truncate very long tool result for print mode display
-                                    if len(result) > 500:
-                                        result = (
-                                            result[:500]
-                                            + "\n... (tool output truncated) ..."
-                                        )
-                                    click.echo(
-                                        f"\n--- Tool Output ---\n{result}\n-------------------"
-                                    )
+                                summary = summarize_tool_result(
+                                    call_name, call_args, str(result_raw)
+                                )
+                                click.echo(f"\n✅ {summary}")
                 if event.get_function_calls():
                     for call in event.get_function_calls():
                         logger.debug(
                             f"Sync Requesting function call execution: {call.name}"
                         )
+
+                        # Store arguments for later result summarization
+                        call_name = call.name or "unknown"
+                        pending_args[call_name] = call.args or {}
+
                         if call.name == "adk_request_confirmation":
                             logger.debug(
-                                f"Sync Requesting function call execution: {call.name}"
+                                f"Skipping display of ADK confirmation call: {call.name}"
                             )
-                            if call.name == "adk_request_confirmation":
-                                logger.debug(
-                                    f"Skipping display of ADK confirmation call: {call.name}"
-                                )
-                                continue
-                            args = call.args or {}
-                            args_str = (
-                                ", ".join(f"{k}={v!r}" for k, v in args.items())
-                                if isinstance(args, dict)
-                                else str(args)
-                            )
-                            click.echo(f"\n🛠️ Executing: {call.name}({args_str})")
+                            continue
+
+                        summary = summarize_tool_call(call_name, call.args or {})
+                        click.echo(f"\n🛠️ {summary}")
         logger.debug("--- [CLI One-off query finished] ---")
         click.echo()
     else:

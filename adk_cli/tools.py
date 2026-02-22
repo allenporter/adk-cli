@@ -155,10 +155,14 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
 
         new_content = content.replace(search_text, replacement_text)
 
+        # Calculate line differences for descriptive summaries
+        old_lines = search_text.splitlines()
+        new_lines = replacement_text.splitlines()
+
         with open(path, "w", encoding="utf-8") as f:
             f.write(new_content)
 
-        return f"Successfully edited {path}"
+        return f"Successfully edited {path} (+{len(new_lines)} -{len(old_lines)})"
     except Exception as e:
         return f"Error editing file: {str(e)}"
 
