@@ -195,11 +195,13 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                     role = event.content.role
                     for part in event.content.parts:
                         if not part.function_call and not part.function_response:
-                            if hasattr(part, "thought") and part.thought:
-                                click.echo(f"\n[Thinking: {part.thought}]")
-                            if hasattr(part, "text") and part.text:
+                            part_text = getattr(part, "text", None)
+                            if part.thought:
+                                if part_text and isinstance(part_text, str):
+                                    click.echo(f"\n[Thinking: {part_text.strip()}]")
+                            elif part_text and isinstance(part_text, str):
                                 if role != "user":
-                                    click.echo(part.text, nl=False)
+                                    click.echo(part_text, nl=False)
 
                         if part.function_response:
                             resp_data = part.function_response.response

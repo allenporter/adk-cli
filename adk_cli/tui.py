@@ -348,13 +348,18 @@ class ChatScreen(Screen):
                     continue
 
                 text_parts = []
+                thought_parts = []
                 for part in event.content.parts:
-                    if part.text:
-                        text_parts.append(part.text)
+                    p_text = getattr(part, "text", None)
+                    if part.thought and p_text:
+                        thought_parts.append(p_text)
+                    elif p_text:
+                        text_parts.append(p_text)
 
                 text = "".join(text_parts).strip()
-                if text:
-                    msg = Message(text, role=role)
+                thought = "".join(thought_parts).strip()
+                if text or thought:
+                    msg = Message(text, role=role, thought=thought)
                     await chat_scroll.mount(msg)
 
             chat_scroll.scroll_end()
@@ -434,8 +439,9 @@ class ChatScreen(Screen):
                                 )
 
                             if part_thought:
-                                current_agent_message.thought += part_thought
-                            if part_text:
+                                if part_text and isinstance(part_text, str):
+                                    current_agent_message.thought += part_text
+                            elif part_text and isinstance(part_text, str):
                                 current_agent_message.text += part_text
 
                         if part.function_response:
