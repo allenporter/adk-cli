@@ -9,10 +9,10 @@ import click
 from adk_cli.api_key import load_api_key, load_env_file
 from adk_cli.projects import find_project_root, get_session_db_path
 from adk_cli.settings import load_settings
+from adk_cli.constants import APP_NAME, DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-3-flash-preview"
 
 SUPERVISOR_INSTRUCTION = """\
 You are an expert AI software engineer and the primary supervisor for this adk-cli session.
@@ -143,7 +143,7 @@ def build_runner_or_exit(ctx: click.Context, model: str | None = None) -> Any:
     )
 
     app = App(
-        name="adk_cli",
+        name=APP_NAME,
         root_agent=agent,
         plugins=[security_plugin],
         events_compaction_config=compaction_config,

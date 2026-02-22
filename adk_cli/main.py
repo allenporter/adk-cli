@@ -10,6 +10,7 @@ from adk_cli.status import is_session_locked, SessionLock
 from adk_cli.summarize import summarize_tool_call, summarize_tool_result
 from adk_cli.cli.sessions import sessions
 from adk_cli.cli.config import config
+from adk_cli.constants import APP_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ async def _get_project_context(
         service = SqliteSessionService(db_path=db_path)
         try:
             response = await service.list_sessions(
-                app_name="adk-cli", user_id=project_id
+                app_name=APP_NAME, user_id=project_id
             )
             if response.sessions:
                 # Sort by last_update_time descending

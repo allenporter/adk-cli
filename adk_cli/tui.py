@@ -25,6 +25,7 @@ from rich.syntax import Syntax
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.status import status_manager
 from adk_cli.summarize import summarize_tool_call, summarize_tool_result
+from adk_cli.constants import APP_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +335,7 @@ class ChatScreen(Screen):
 
         try:
             session = await self.runner.session_service.get_session(
-                app_name="adk-cli", user_id=self.user_id, session_id=self.session_id
+                app_name=APP_NAME, user_id=self.user_id, session_id=self.session_id
             )
             if not session or not session.events:
                 return

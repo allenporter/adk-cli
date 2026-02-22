@@ -147,5 +147,5 @@ def test_cli_sessions_gc_old_sessions() -> None:
         assert result.exit_code == 0
         assert "Successfully deleted 1 sessions." in result.output
         mock_instance.delete_session.assert_called_once_with(
-            app_name="adk-cli", user_id="user1", session_id="old-session"
+            app_name="adk_cli", user_id="user1", session_id="old-session"
         )

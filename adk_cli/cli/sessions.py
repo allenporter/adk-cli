@@ -2,6 +2,7 @@ import click
 import asyncio
 from datetime import datetime
 from adk_cli.projects import find_project_root, get_project_id, get_session_db_path
+from adk_cli.constants import APP_NAME
 
 
 @click.group()
@@ -24,7 +25,7 @@ def list_sessions_cmd(all: bool) -> None:
 
     async def _list():
         response = await service.list_sessions(
-            app_name="adk-cli", user_id=None if all else project_id
+            app_name=APP_NAME, user_id=None if all else project_id
         )
         if not response.sessions:
             click.echo("No sessions found.")
@@ -60,7 +61,7 @@ def delete_session_cmd(session_id: str) -> None:
 
     async def _delete():
         await service.delete_session(
-            app_name="adk-cli", user_id=project_id, session_id=session_id
+            app_name=APP_NAME, user_id=project_id, session_id=session_id
         )
         click.echo(f"Session {session_id} deleted.")
 
@@ -80,7 +81,7 @@ def gc_sessions_cmd(days: int, yes: bool) -> None:
     service = SqliteSessionService(db_path=db_path)
 
     async def _gc():
-        response = await service.list_sessions(app_name="adk-cli")
+        response = await service.list_sessions(app_name=APP_NAME)
         if not response.sessions:
             click.echo("No sessions found.")
             return
@@ -105,7 +106,7 @@ def gc_sessions_cmd(days: int, yes: bool) -> None:
 
         for s in to_delete:
             await service.delete_session(
-                app_name="adk-cli", user_id=s.user_id, session_id=s.id
+                app_name=APP_NAME, user_id=s.user_id, session_id=s.id
             )
 
         click.echo(f"Successfully deleted {len(to_delete)} sessions.")
