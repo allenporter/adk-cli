@@ -386,6 +386,10 @@ class ChatScreen(Screen):
         border-left: solid #007acc;
     }
 
+    #chat-scroll {
+        scrollbar-gutter: stable;
+    }
+
     #chat-scroll:focus {
         border: tall $accent;
     }
@@ -413,6 +417,10 @@ class ChatScreen(Screen):
         Binding("ctrl+c", "app.quit", "Quit", show=False),
         Binding("tab", "focus_next", "Focus Next", show=False),
         Binding("shift+tab", "focus_previous", "Focus Previous", show=False),
+        Binding("up", "scroll_up", "Scroll Up", show=False),
+        Binding("down", "scroll_down", "Scroll Down", show=False),
+        Binding("pageup", "page_up", "Page Up", show=False),
+        Binding("pagedown", "page_down", "Page Down", show=False),
     ]
 
     def action_focus_next(self) -> None:
@@ -420,6 +428,18 @@ class ChatScreen(Screen):
 
     def action_focus_previous(self) -> None:
         self.app.action_focus_previous()
+
+    def action_scroll_up(self) -> None:
+        self.query_one("#chat-scroll").scroll_up()
+
+    def action_scroll_down(self) -> None:
+        self.query_one("#chat-scroll").scroll_down()
+
+    def action_page_up(self) -> None:
+        self.query_one("#chat-scroll").scroll_page_up()
+
+    def action_page_down(self) -> None:
+        self.query_one("#chat-scroll").scroll_page_down()
 
     def __init__(
         self,
