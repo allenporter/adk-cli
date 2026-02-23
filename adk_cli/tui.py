@@ -280,9 +280,10 @@ class ChatScreen(Screen):
     }
 
     .confirmation-buttons {
-        height: 1;
+        height: auto;
         margin: 0;
         align: left middle;
+        layout: horizontal;
     }
 
     .confirmation-buttons Button {
@@ -294,7 +295,7 @@ class ChatScreen(Screen):
     }
 
     .confirmation-buttons Label {
-        width: auto;
+        width: 1fr;
         margin-right: 2;
     }
 
