@@ -13,6 +13,8 @@ from textual.widgets import (
     Button,
     LoadingIndicator,
     Collapsible,
+    RadioButton,
+    RadioSet,
 )
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -50,23 +52,26 @@ class InlineConfirmation(Static):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="confirmation-container"):
-            if self.tool_name:
-                summary = summarize_tool_call(self.tool_name, self.tool_args or {})
-                yield Label(f"🛠️  {summary}", classes="confirmation-tool")
+            yield Label(f"  {self.hint}", classes="confirmation-hint")
+            with RadioSet(id="confirmation-choice"):
+                yield RadioButton("Approve", id="radio-approve", value=True)
+                yield RadioButton("Deny", id="radio-deny")
+            yield Button("Confirm", variant="primary", id="confirm-button")
 
-            with Horizontal(classes="confirmation-buttons"):
-                yield Label(f"  {self.hint}", classes="confirmation-hint")
-                yield Button("Approve (y)", variant="success", id="approve")
-                yield Button("Deny (n)", variant="error", id="deny")
+    @on(RadioSet.Changed)
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        # We can handle logic here if needed, but we'll wait for button press
+        pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if self._resolved:
             return
 
-        if event.button.id == "approve":
-            self._resolve(True)
-        else:
-            self._resolve(False)
+        if event.button.id == "confirm-button":
+            radio_set = self.query_one("#confirmation-choice", RadioSet)
+            # Find which one is selected
+            result = radio_set.pressed_index == 0  # "Approve" is index 0
+            self._resolve(result)
 
     def on_key(self, event: Any) -> None:
         """Handle 'y' and 'n' keys for confirmation."""
@@ -86,7 +91,14 @@ class InlineConfirmation(Static):
         self.remove_class("active")
         self.add_class("resolved")
         status = "✅ Approved" if result else "❌ Denied"
-        self.query_one(".confirmation-buttons").remove()
+
+        # Remove the interaction elements
+        try:
+            self.query_one("#confirmation-choice").remove()
+            self.query_one("#confirm-button").remove()
+        except Exception:
+            pass
+
         self.query_one(".confirmation-hint", Label).update(f"{status}: {self.hint}")
 
 
@@ -270,6 +282,22 @@ class ChatScreen(Screen):
         margin: 0;
         color: $warning;
         height: auto;
+    }
+
+    #confirmation-choice {
+        background: transparent;
+        border: none;
+        padding: 0;
+        margin: 0;
+        height: auto;
+    }
+
+    #confirm-button {
+        margin: 1 0;
+        height: 1;
+        width: 15;
+        border: none;
+        padding: 0 1;
     }
 
     .confirmation-tool {
@@ -737,6 +765,10 @@ class ChatScreen(Screen):
                         call_name = call.name or "unknown"
                         pending_args[call_name] = call.args or {}
 
+                        # Skip generic display for confirmation
+                        if call.name == "adk_request_confirmation":
+                            continue
+
                         try:
                             loading_container.query_one(
                                 "#loading-status", Label
@@ -744,15 +776,14 @@ class ChatScreen(Screen):
                         except Exception:
                             pass
 
-                        # Skip generic display for confirmation
-                        if call.name == "adk_request_confirmation":
-                            continue
-
                         # Use a more descriptive tool display
                         display_name: str = summarize_tool_call(
                             call_name, call.args or {}
                         )
 
+                        # Check if this tool call was already mounted (e.g. via thinking reasoning)
+                        # We only mount it here if it wasn't specifically a confirmation tool
+                        # and we haven't already shown a status update for it.
                         await chat_scroll.mount(
                             Message(display_name, role="tool"), before=loading_container
                         )
@@ -846,6 +877,14 @@ class AdkTuiApp(App):
         if not isinstance(self.screen, ChatScreen):
             return False
 
+        # Hide loading indicator while confirming
+        loading_container = None
+        try:
+            loading_container = self.screen.query_one("#loading-container")
+            loading_container.display = False
+        except Exception:
+            pass
+
         loop = asyncio.get_event_loop()
         future = loop.create_future()
 
@@ -858,10 +897,9 @@ class AdkTuiApp(App):
         # We need to decide where to mount it.
         # Ideally, it should be at the end of the current chat scroll.
         # If there's a loading indicator, we mount it BEFORE the indicator.
-        try:
-            loading = self.screen.query_one("#loading-container")
-            await chat_scroll.mount(conf, before=loading)
-        except Exception:
+        if loading_container:
+            await chat_scroll.mount(conf, before=loading_container)
+        else:
             await chat_scroll.mount(conf)
 
         conf.focus()
@@ -869,6 +907,10 @@ class AdkTuiApp(App):
 
         # Wait for user interaction
         result = await future
+
+        # Restore loading indicator
+        if loading_container:
+            loading_container.display = True
 
         # The InlineConfirmation widget handles its own UI updates upon resolution.
         return result
