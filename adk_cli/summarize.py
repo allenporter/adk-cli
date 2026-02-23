@@ -28,23 +28,23 @@ def summarize_tool_call(name: str, args: Dict[str, Any]) -> str:
 
     if name == "bash":
         command = args.get("command", "")
-        # Truncate command for display
-        cmd_summary = command.strip().splitlines()[0] if command else ""
-        if len(cmd_summary) > 50:
-            cmd_summary = cmd_summary[:47] + "..."
-        return f"Running bash: {cmd_summary}"
+        # Use simple color coding for commands if possible or just bold
+        return f"Execute command: [bold magenta]{command.strip()}[/bold magenta]"
 
     if name == "grep":
         pattern = args.get("pattern", "")
         directory = args.get("directory", ".")
-        return f"Searching for '{pattern}' in {directory}"
+        return f"Search for '[bold]{pattern}[/bold]' in [dim]{directory}[/dim]"
 
     if name == "read_many_files":
         paths = args.get("paths", [])
         count = len(paths)
         if count == 1:
-            return f"Reading {os.path.basename(paths[0])}"
-        return f"Reading {count} files"
+            return f"Read [bold]{os.path.basename(paths[0])}[/bold]"
+        files_list = ", ".join([os.path.basename(p) for p in paths[:3]])
+        if count > 3:
+            files_list += f" and {count - 3} more"
+        return f"Read {count} files ([dim]{files_list}[/dim])"
 
     # Default fallback
     return f"Executing {name}"

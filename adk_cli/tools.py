@@ -348,6 +348,8 @@ async def _run_subagent_task(
 
     content = types.Content(role="user", parts=[types.Part(text=prompt)])
 
+    status_manager.update(f"🚀 Starting [bold]{agent_name}[/bold]...")
+
     try:
         report = []
         async for event in runner.run_async(
@@ -357,16 +359,18 @@ async def _run_subagent_task(
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.thought:
-                        status_manager.update(f"💭 {agent_name} thinking...")
+                        status_manager.update(f"💭 [dim]{agent_name}[/dim] thinking...")
 
             # Use get_function_calls to be consistent with tui.py
             for call in event.get_function_calls():
-                status_manager.update(f"🛠️ {agent_name} calling {call.name}...")
+                status_manager.update(
+                    f"🛠️ [dim]{agent_name}[/dim] calling {call.name}..."
+                )
 
             if event.is_final_response() and event.content and event.content.parts:
                 report.append(event.content.parts[0].text)
 
-        status_manager.update(f"✅ {agent_name} complete.")
+        status_manager.update(f"✅ [bold]{agent_name}[/bold] complete.")
         return "\n".join(report) if report else "Subagent failed to return a report."
     except Exception as e:
         return f"Error in subagent: {str(e)}"

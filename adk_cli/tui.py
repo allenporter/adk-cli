@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import json
 from typing import Optional, Dict, Any
 from textual import on
 from textual.app import App, ComposeResult, Screen
@@ -16,13 +15,11 @@ from textual.widgets import (
     Collapsible,
 )
 from textual.binding import Binding
-from textual.screen import ModalScreen
 from textual.reactive import reactive
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
 
-from rich.syntax import Syntax
 
 from rich.markup import escape
 
@@ -34,102 +31,63 @@ from adk_cli.constants import APP_NAME
 logger = logging.getLogger(__name__)
 
 
-class ConfirmationModal(ModalScreen[bool]):
-    """A modal dialog to confirm or deny an action."""
-
-    CSS = """
-    ConfirmationModal {
-        align: center middle;
-    }
-
-    #dialog {
-        padding: 1 2;
-        width: 80;
-        max-height: 80vh;
-        border: thick $primary;
-        background: $surface;
-    }
-
-    #title {
-        text-align: center;
-        width: 100%;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    #hint {
-        margin: 1 0;
-        color: $text;
-        text-align: center;
-    }
-
-    #tool-info {
-        margin: 1 0;
-        padding: 1;
-        background: $boost;
-        border: solid $primary;
-    }
-
-    #args-container {
-        margin: 1 0;
-        height: auto;
-        max-height: 20;
-        border: solid $panel;
-    }
-
-    #buttons {
-        height: 3;
-        align: center middle;
-        margin-top: 1;
-    }
-
-    Button {
-        margin: 0 2;
-    }
-    """
+class InlineConfirmation(Static):
+    """An inline widget to confirm or deny an action."""
 
     def __init__(
         self,
         hint: str,
         tool_name: Optional[str] = None,
         tool_args: Optional[Dict[str, Any]] = None,
+        future: Optional[asyncio.Future] = None,
     ):
         super().__init__()
         self.hint = hint
         self.tool_name = tool_name
         self.tool_args = tool_args
+        self.future = future
+        self._resolved = False
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog"):
-            yield Label("⚠️  Confirmation Required", id="title")
-            yield Label(self.hint, id="hint")
-
+        with Vertical(classes="confirmation-container"):
             if self.tool_name:
-                with Vertical(id="tool-info"):
-                    summary = summarize_tool_call(self.tool_name, self.tool_args or {})
-                    yield Label(f"🛠️ [bold]{summary}[/bold]")
+                summary = summarize_tool_call(self.tool_name, self.tool_args or {})
+                yield Label(f"🛠️  {summary}", classes="confirmation-tool")
 
-                    if self.tool_args:
-                        args_json = json.dumps(self.tool_args, indent=2)
-                        lines = args_json.splitlines()
-                        if len(lines) > 20:
-                            args_json = (
-                                "\n".join(lines[:20]) + "\n... (args truncated) ..."
-                            )
-                        yield Container(
-                            Static(Syntax(args_json, "json", theme="monokai")),
-                            id="args-container",
-                        )
-
-            with Horizontal(id="buttons"):
-                yield Button("Approve", variant="success", id="approve")
-                yield Button("Deny", variant="error", id="deny")
+            with Horizontal(classes="confirmation-buttons"):
+                yield Label(f"  {self.hint}", classes="confirmation-hint")
+                yield Button("Approve (y)", variant="success", id="approve")
+                yield Button("Deny (n)", variant="error", id="deny")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        if self._resolved:
+            return
+
         if event.button.id == "approve":
-            self.dismiss(True)
+            self._resolve(True)
         else:
-            self.dismiss(False)
+            self._resolve(False)
+
+    def on_key(self, event: Any) -> None:
+        """Handle 'y' and 'n' keys for confirmation."""
+        if self._resolved:
+            return
+        if event.key == "y":
+            self._resolve(True)
+        elif event.key == "n":
+            self._resolve(False)
+
+    def _resolve(self, result: bool) -> None:
+        self._resolved = True
+        if self.future and not self.future.done():
+            self.future.set_result(result)
+
+        # Update UI to reflect the choice
+        self.remove_class("active")
+        self.add_class("resolved")
+        status = "✅ Approved" if result else "❌ Denied"
+        self.query_one(".confirmation-buttons").remove()
+        self.query_one(".confirmation-hint", Label).update(f"{status}: {self.hint}")
 
 
 class ThoughtMessage(Collapsible):
@@ -219,7 +177,7 @@ class Message(Static):
     def _markdown_renderable(self) -> Any:
         """Build the full Markdown renderable (used once, when streaming ends)."""
         if self.role == "status":
-            return f"💭 {escape(self.text)}"
+            return self.text
         if self.role == "tool":
             return f"🛠️  [bold]{escape(self.text)}[/bold]"
         prefix = "✦ Agent" if self.role == "agent" else "👤 You"
@@ -292,6 +250,52 @@ class ChatScreen(Screen):
         background: $accent;
         color: $text;
         text-style: bold;
+    }
+
+    .confirmation-container {
+        margin: 0 4;
+        padding: 0 1;
+        background: transparent;
+        border-left: solid $warning;
+        min-height: 1;
+        height: auto;
+    }
+
+    .confirmation-container.resolved {
+        border-left: solid $success;
+        opacity: 0.5;
+    }
+
+    .confirmation-hint {
+        margin: 0;
+        color: $warning;
+        height: auto;
+    }
+
+    .confirmation-tool {
+        background: transparent;
+        padding: 0;
+        margin: 0;
+        height: auto;
+    }
+
+    .confirmation-buttons {
+        height: 1;
+        margin: 0;
+        align: left middle;
+    }
+
+    .confirmation-buttons Button {
+        margin: 0 2 0 0;
+        height: 1;
+        min-width: 8;
+        border: none;
+        padding: 0 1;
+    }
+
+    .confirmation-buttons Label {
+        width: auto;
+        margin-right: 2;
     }
 
     .tool-container {
@@ -397,7 +401,7 @@ class ChatScreen(Screen):
 
     #chat-scroll:focus {
         border: tall $accent;
-    }
+            }
 
     #loading-container {
         height: 3;
@@ -429,9 +433,11 @@ class ChatScreen(Screen):
     ]
 
     def action_focus_next(self) -> None:
+        """Focus the next widget without forced scrolling."""
         self.app.action_focus_next()
 
     def action_focus_previous(self) -> None:
+        """Focus the previous widget without forced scrolling."""
         self.app.action_focus_previous()
 
     def action_scroll_up(self) -> None:
@@ -834,24 +840,36 @@ class AdkTuiApp(App):
         tool_args: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
-        Displays a modal to ask for user confirmation.
+        Displays an inline widget to ask for user confirmation.
         """
+        if not isinstance(self.screen, ChatScreen):
+            return False
+
         loop = asyncio.get_event_loop()
         future = loop.create_future()
-        # ModalScreen.dismiss calls the callback passed to push_screen
-        self.push_screen(
-            ConfirmationModal(hint, tool_name, tool_args), callback=future.set_result
-        )
+
+        chat_scroll = self.screen.query_one("#chat-scroll", Vertical)
+
+        # Create the inline confirmation widget
+        conf = InlineConfirmation(hint, tool_name, tool_args, future)
+        conf.can_focus = True
+
+        # We need to decide where to mount it.
+        # Ideally, it should be at the end of the current chat scroll.
+        # If there's a loading indicator, we mount it BEFORE the indicator.
+        try:
+            loading = self.screen.query_one("#loading-container")
+            await chat_scroll.mount(conf, before=loading)
+        except Exception:
+            await chat_scroll.mount(conf)
+
+        conf.focus()
+        chat_scroll.scroll_end()
+
+        # Wait for user interaction
         result = await future
-        # Give the event loop a chance to process the dismissal and update the UI
-        # before any heavy synchronous tool execution starts.
-        await asyncio.sleep(0.1)
 
-        if result:
-            self.show_status_update(f"✅ Approved execution of {tool_name or 'action'}")
-        else:
-            self.show_status_update(f"❌ Denied execution of {tool_name or 'action'}")
-
+        # The InlineConfirmation widget handles its own UI updates upon resolution.
         return result
 
     async def on_shutdown(self) -> None:
