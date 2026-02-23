@@ -22,6 +22,7 @@ Future Guidance:
 
 import os
 import subprocess
+import asyncio
 from typing import Any, Callable
 
 from adk_cli.status import status_manager
@@ -30,12 +31,13 @@ from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
 
 
-def ls(directory: str = ".", show_hidden: bool = False) -> str:
+async def ls(directory: str = ".", show_hidden: bool = False) -> str:
     """
     Lists the files and directories in the specified path.
     Directories are suffixed with a trailing slash.
     """
-    try:
+
+    def _ls():
         items = []
         for entry in os.scandir(directory):
             if not show_hidden and entry.name.startswith("."):
@@ -46,17 +48,21 @@ def ls(directory: str = ".", show_hidden: bool = False) -> str:
                 items.append(entry.name)
         items.sort()
         return "\n".join(items) if items else "No items found."
+
+    try:
+        return await asyncio.to_thread(_ls)
     except Exception as e:
         return f"Error listing directory: {str(e)}"
 
 
-def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
+async def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
     """
     Reads and returns the content of the file at the specified path.
     If the file is large, use start_line and end_line to read it in chunks.
     Line numbers are 1-indexed.
     """
-    try:
+
+    def _cat():
         if not os.path.isfile(path):
             return f"Error: {path} is not a file."
 
@@ -94,46 +100,54 @@ def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
             content += f"\n\n[Output truncated. Showing lines {start_line}-{effective_end}. Use start_line and end_line to read more.]"
 
         return content
+
+    try:
+        return await asyncio.to_thread(_cat)
     except UnicodeDecodeError:
         return f"Error: {path} appears to be a binary file."
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
 
-def read_many_files(paths: list[str]) -> str:
+async def read_many_files(paths: list[str]) -> str:
     """
     Reads multiple files and returns their contents in a structured format.
     """
     results = []
     for path in paths:
-        content = cat(path)
+        content = await cat(path)
         results.append(f"--- File: {path} ---\n{content}\n")
     return "\n".join(results)
 
 
-def write_file(path: str, content: str) -> str:
+async def write_file(path: str, content: str) -> str:
     """
     Creates or overwrites a file at the specified path with the given content.
     """
-    try:
+
+    def _write():
         dirname = os.path.dirname(path)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return f"Successfully wrote to {path}"
+
+    try:
+        return await asyncio.to_thread(_write)
     except Exception as e:
         return f"Error writing file: {str(e)}"
 
 
-def edit_file(path: str, search_text: str, replacement_text: str) -> str:
+async def edit_file(path: str, search_text: str, replacement_text: str) -> str:
     """
     Replaces a specific, unique block of text in a file with new content.
 
     This tool is safer and more efficient than write_file for modifying
     existing files because it only changes the targeted section.
     """
-    try:
+
+    def _edit():
         if not os.path.exists(path):
             return f"Error: File not found at {path}"
 
@@ -164,18 +178,22 @@ def edit_file(path: str, search_text: str, replacement_text: str) -> str:
             f.write(new_content)
 
         return f"Successfully edited {path} (+{len(new_lines)} -{len(old_lines)})"
+
+    try:
+        return await asyncio.to_thread(_edit)
     except Exception as e:
         return f"Error editing file: {str(e)}"
 
 
-def grep(
+async def grep(
     pattern: str, directory: str = ".", recursive: bool = True, context_lines: int = 0
 ) -> str:
     """
     Searches for a pattern within files in a directory.
     context_lines: Number of lines of leading and trailing context to show.
     """
-    try:
+
+    def _grep():
         # Avoid common noise directories to speed up searches and reduce context pollution
         exclude_dirs = [
             ".git",
@@ -219,18 +237,22 @@ def grep(
             return output[:max_chars] + truncation_msg
 
         return output
+
+    try:
+        return await asyncio.to_thread(_grep)
     except subprocess.TimeoutExpired:
         return "Error: grep command timed out after 60 seconds."
     except Exception as e:
         return f"Error running grep: {str(e)}"
 
 
-def bash(command: str, cwd: str = ".") -> str:
+async def bash(command: str, cwd: str = ".") -> str:
     """
     Executes a shell command and returns the combined stdout and stderr.
     The output is truncated if it exceeds 10,000 characters.
     """
-    try:
+
+    def _bash():
         result = subprocess.run(
             command,
             shell=True,
@@ -253,6 +275,9 @@ def bash(command: str, cwd: str = ".") -> str:
             return combined_output[:max_chars] + truncation_msg
 
         return combined_output
+
+    try:
+        return await asyncio.to_thread(_bash)
     except subprocess.TimeoutExpired:
         return "Error: Command timed out after 300 seconds."
     except Exception as e:
@@ -290,7 +315,7 @@ def _get_agent_metadata(agent_name: str) -> dict[str, Any]:
     return {}
 
 
-def _run_subagent_task(
+async def _run_subagent_task(
     prompt: str, agent_name: str = "adk_subagent", fallback_instruction: str = ""
 ) -> str:
     """Internal helper to run a sub-agent with a specific instruction and toolset."""
@@ -324,11 +349,10 @@ def _run_subagent_task(
     content = types.Content(role="user", parts=[types.Part(text=prompt)])
 
     try:
-        events = runner.run(
-            user_id="subagent", session_id="subsession", new_message=content
-        )
         report = []
-        for event in events:
+        async for event in runner.run_async(
+            user_id="subagent", session_id="subsession", new_message=content
+        ):
             # Provide intermediate feedback to TUI
             if event.content and event.content.parts:
                 for part in event.content.parts:
@@ -348,7 +372,7 @@ def _run_subagent_task(
         return f"Error in subagent: {str(e)}"
 
 
-def explore_codebase(task: str) -> str:
+async def explore_codebase(task: str) -> str:
     """
     Spawns a specialized Discovery Agent to map out the architecture or find
     specific logic. Use this for 'Where is X defined?' or 'How does Y work?'.
@@ -364,12 +388,14 @@ def explore_codebase(task: str) -> str:
     )
 
     # Note: tools and instruction are now loaded from Markdown if available
-    return _run_subagent_task(
-        task, agent_name="code-explorer", fallback_instruction=fallback_instruction
+    return await _run_subagent_task(
+        task,
+        agent_name="code-explorer",
+        fallback_instruction=fallback_instruction,
     )
 
 
-def review_work(original_goal: str) -> str:
+async def review_work(original_goal: str) -> str:
     """
     Spawns a specialized Code Reviewer to audit the current state of the
     files against the user's initial request.
@@ -385,14 +411,14 @@ def review_work(original_goal: str) -> str:
     )
 
     # Reviewer needs discovery tools and bash to run tests/checks
-    return _run_subagent_task(
+    return await _run_subagent_task(
         f"Review the current changes against this goal: {original_goal}",
         agent_name="code-reviewer",
         fallback_instruction=fallback_instruction,
     )
 
 
-def design_architecture(task: str) -> str:
+async def design_architecture(task: str) -> str:
     """
     Spawns a specialized Architecture Agent to design implementation blueprints.
     Use this to get detailed file-by-file plans, component responsibilities,
@@ -405,12 +431,14 @@ def design_architecture(task: str) -> str:
     )
 
     # Architect needs discovery tools to understand patterns
-    return _run_subagent_task(
-        task, agent_name="code-architect", fallback_instruction=fallback_instruction
+    return await _run_subagent_task(
+        task,
+        agent_name="code-architect",
+        fallback_instruction=fallback_instruction,
     )
 
 
-def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
+async def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     """
     Update the session's structured todo list to track progress and plan tasks.
     Each todo should have 'id' (int), 'title' (str), and 'status' (not-started, in-progress, completed).
@@ -440,7 +468,7 @@ def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     return "Todo list updated:\n" + "\n".join(formatted)
 
 
-def run_subagent(task: str, agent_name: str = "adk_subagent") -> str:
+async def run_subagent(task: str, agent_name: str = "adk_subagent") -> str:
     """
     Spawns a specialized sub-agent to handle a specific task.
     This is useful for delegating complex sub-tasks or exploring parts of the codebase
@@ -454,7 +482,7 @@ def run_subagent(task: str, agent_name: str = "adk_subagent") -> str:
                    instruction set and available tools (e.g., 'code-explorer',
                    'code-architect', 'code-reviewer').
     """
-    return _run_subagent_task(task, agent_name=agent_name)
+    return await _run_subagent_task(task, agent_name=agent_name)
 
 
 def get_essential_tools() -> list[Callable[..., Any] | BaseTool | BaseToolset]:

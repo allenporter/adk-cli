@@ -23,6 +23,8 @@ from google.genai import types
 
 from rich.syntax import Syntax
 
+from rich.markup import escape
+
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.status import status_manager
 from adk_cli.summarize import summarize_tool_call, summarize_tool_result
@@ -177,7 +179,7 @@ class ToolMessage(Collapsible):
         self._content_widget = Static(raw_output, classes="tool-content")
         super().__init__(self._content_widget, title=f"🛠️ {summary}")
         self.add_class("tool-container")
-        self.collapsed = False  # Start expanded to show progress
+        self.collapsed = True  # Start collapsed as requested
 
 
 class Message(Static):
@@ -205,9 +207,9 @@ class Message(Static):
     def _markdown_renderable(self) -> Any:
         """Build the full Markdown renderable (used once, when streaming ends)."""
         if self.role == "status":
-            return f"💭 {self.text}"
+            return f"💭 {escape(self.text)}"
         if self.role == "tool":
-            return f"🛠️  [bold]{self.text}[/bold]"
+            return f"🛠️  [bold]{escape(self.text)}[/bold]"
         prefix = "✦ Agent" if self.role == "agent" else "👤 You"
 
         return Markdown(f"### {prefix}\n\n{self.text}")
