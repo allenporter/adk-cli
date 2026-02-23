@@ -153,7 +153,7 @@ class ThoughtMessage(Collapsible):
     def start_streaming(self) -> None:
         self._streaming = True
         self.collapsed = False
-        self.set_interval(2.0, self._cycle_title)
+        self._title_timer = self.set_interval(2.0, self._cycle_title)
 
     def _cycle_title(self) -> None:
         if self._streaming:
@@ -162,9 +162,12 @@ class ThoughtMessage(Collapsible):
 
     def finish_streaming(self) -> None:
         self._streaming = False
+        if hasattr(self, "_title_timer"):
+            self._title_timer.stop()
         self.title = "Thought Process"
         self._content_widget.update(Markdown(self.text))
-        self.collapsed = True
+        # Keep expanded after finishing so user can see it
+        self.collapsed = False
 
     def watch_text(self, old_text: str, new_text: str) -> None:
         if self._streaming:
@@ -270,6 +273,8 @@ class ChatScreen(Screen):
         padding: 0 1;
         border-left: solid #444;
         text-style: italic;
+        max-height: 15;
+        overflow-y: auto;
     }
 
     .thought-container CollapsibleTitle {
@@ -513,6 +518,7 @@ class ChatScreen(Screen):
                         msg = ThoughtMessage(p_thought)
                         await chat_scroll.mount(msg)
                         msg.finish_streaming()
+                        # History thoughts should probably be collapsed to save space
                         msg.collapsed = True
 
                     if p_text:
@@ -617,18 +623,18 @@ class ChatScreen(Screen):
                                 current_thought_message.text += part_thought
                                 chat_scroll.scroll_end()
 
-                                loading_container.query_one(
-                                    "#loading-status", Label
-                                ).update("Reasoning...")
+                                # Update loading status with a snippet of the thought
+                                snippet = part_thought.strip().replace("\n", " ")
+                                if len(snippet) > 30:
+                                    snippet = snippet[:27] + "..."
+                                try:
+                                    loading_container.query_one(
+                                        "#loading-status", Label
+                                    ).update(f"Reasoning: {snippet}")
+                                except Exception:
+                                    pass
 
                             if part_text and isinstance(part_text, str):
-                                # Skip text part for agent bubble (explicit user/tool role)
-                                if role == "user":
-                                    logger.debug(
-                                        "Skipping text part for agent bubble (explicit user role)"
-                                    )
-                                    continue
-
                                 # If we switch from thought to text, finish the thought message
                                 if current_thought_message:
                                     current_thought_message.finish_streaming()
@@ -650,9 +656,12 @@ class ChatScreen(Screen):
                                     )
 
                                 current_agent_message.text += part_text
-                                loading_container.query_one(
-                                    "#loading-status", Label
-                                ).update("Typing...")
+                                try:
+                                    loading_container.query_one(
+                                        "#loading-status", Label
+                                    ).update("Typing...")
+                                except Exception:
+                                    pass
 
                         if part.function_response:
                             # Collapse previous reasoning or tools
@@ -692,9 +701,12 @@ class ChatScreen(Screen):
                                     before=loading_container,
                                 )
                                 chat_scroll.scroll_end()
-                                loading_container.query_one(
-                                    "#loading-status", Label
-                                ).update("Processing results...")
+                                try:
+                                    loading_container.query_one(
+                                        "#loading-status", Label
+                                    ).update("Processing results...")
+                                except Exception:
+                                    pass
                     # Scroll once per event, not per individual text part.
                     if current_agent_message is not None:
                         chat_scroll.scroll_end()
@@ -718,9 +730,12 @@ class ChatScreen(Screen):
                         call_name = call.name or "unknown"
                         pending_args[call_name] = call.args or {}
 
-                        loading_container.query_one("#loading-status", Label).update(
-                            f"Running {call_name}..."
-                        )
+                        try:
+                            loading_container.query_one(
+                                "#loading-status", Label
+                            ).update(f"Running {call_name}...")
+                        except Exception:
+                            pass
 
                         # Skip generic display for confirmation
                         if call.name == "adk_request_confirmation":
