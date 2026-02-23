@@ -24,6 +24,7 @@ import os
 import subprocess
 from typing import Any, Callable
 
+from adk_cli.status import status_manager
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
@@ -328,9 +329,20 @@ def _run_subagent_task(
         )
         report = []
         for event in events:
+            # Provide intermediate feedback to TUI
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.thought:
+                        status_manager.update(f"💭 {agent_name} thinking...")
+
+            # Use get_function_calls to be consistent with tui.py
+            for call in event.get_function_calls():
+                status_manager.update(f"🛠️ {agent_name} calling {call.name}...")
+
             if event.is_final_response() and event.content and event.content.parts:
                 report.append(event.content.parts[0].text)
 
+        status_manager.update(f"✅ {agent_name} complete.")
         return "\n".join(report) if report else "Subagent failed to return a report."
     except Exception as e:
         return f"Error in subagent: {str(e)}"
