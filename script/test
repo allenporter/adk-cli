@@ -5,10 +5,10 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-echo "==> Running tests..."
+echo "==> Running tests with coverage..."
 
 if command -v uv >/dev/null 2>&1; then
-  uv run pytest "$@"
+  uv run pytest --cov=adk_cli --cov-report=term-missing "$@"
 else
-  pytest "$@"
+  pytest --cov=adk_cli --cov-report=term-missing "$@"
 fi

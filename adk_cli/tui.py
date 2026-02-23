@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 from textual import on
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
@@ -210,6 +210,25 @@ class Message(Static):
         return self._markdown_renderable()
 
 
+class PendingQuery(Static):
+    """A widget for a queued query that hasn't been sent yet."""
+
+    def __init__(self, text: str, on_remove: Callable[[str], None]):
+        super().__init__()
+        self.text = text
+        self.on_remove = on_remove
+
+    def compose(self) -> ComposeResult:
+        with Horizontal():
+            yield Label(f"Pending: {self.text}", id="pending-text")
+            yield Button("x", id="remove-btn", variant="error")
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "remove-btn":
+            self.on_remove(self.text)
+            await self.remove()
+
+
 class ChatScreen(Screen):
     """The main chat interface screen."""
 
@@ -356,6 +375,34 @@ class ChatScreen(Screen):
         text-style: bold;
     }
 
+    PendingQuery {
+        background: $surface;
+        border: dashed;
+        margin: 1 2;
+        padding: 0 1;
+        height: 3;
+    }
+
+    PendingQuery Horizontal {
+        height: 1;
+        margin: 0;
+    }
+
+    PendingQuery #pending-text {
+        width: 1fr;
+        color: $text-muted;
+        content-align: left middle;
+    }
+
+    PendingQuery #remove-btn {
+        width: 3;
+        min-width: 3;
+        height: 1;
+        border: dashed $error;
+        padding: 0;
+        margin: 0;
+    }
+
     #status-bar {
         height: 1;
         background: $surface;
@@ -493,6 +540,13 @@ class ChatScreen(Screen):
         self.user_id = user_id
         self.session_id = session_id
         self.initial_query = initial_query
+        self._pending_queries: list[str] = []
+        self._is_processing = False
+
+    def remove_pending(self, text: str) -> None:
+        """Removes a query from the pending list."""
+        if text in self._pending_queries:
+            self._pending_queries.remove(text)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -523,7 +577,36 @@ class ChatScreen(Screen):
         self.query_one("#user-input", Input).focus()
         await self.load_history()
         if self.initial_query:
-            self.run_worker(self.handle_initial_query(self.initial_query))
+            self._pending_queries.append(self.initial_query)
+            self.run_worker(self._process_pending())
+
+    async def _process_pending(self) -> None:
+        """Processes all pending queries as a single turn."""
+        if self._is_processing or not self._pending_queries:
+            return
+
+        self._is_processing = True
+        try:
+            # Join all pending queries into a single Turn
+            combined_query = "\n\n".join(self._pending_queries)
+            self._pending_queries.clear()
+
+            # Clean up any pending UI widgets
+            chat_scroll = self.query_one("#chat-scroll", Vertical)
+            for widget in chat_scroll.query(PendingQuery):
+                await widget.remove()
+
+            await self.process_query(combined_query)
+        finally:
+            self._is_processing = False
+            # If new queries arrived while processing, trigger another run
+            if self._pending_queries:
+                self.run_worker(self._process_pending())
+            else:
+                try:
+                    self.query_one("#user-input", Input).focus()
+                except Exception:
+                    pass
 
     async def load_history(self) -> None:
         """Loads and displays history for the current session."""
@@ -590,7 +673,8 @@ class ChatScreen(Screen):
 
         # Remove any existing loading indicator before mounting a new one
         try:
-            self.query_one("#loading-container").remove()
+            old_loading = self.query_one("#loading-container")
+            await old_loading.remove()
         except Exception:
             pass
 
@@ -807,6 +891,11 @@ class ChatScreen(Screen):
             chat_scroll.scroll_end()
         finally:
             await loading_container.remove()
+            try:
+                # No longer disabling/enabling here, as the consumer manages the flow
+                self.query_one("#user-input", Input).focus()
+            except Exception:
+                pass
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -817,8 +906,25 @@ class ChatScreen(Screen):
             self.app.exit()
             return
 
-        self.query_one("#user-input", Input).value = ""
-        self.run_worker(self.process_query(text))
+        input_widget = self.query_one("#user-input", Input)
+        input_widget.value = ""
+
+        # If we are already processing, just add to pending list and show UI
+        if self._is_processing:
+            self._pending_queries.append(text)
+            chat_scroll = self.query_one("#chat-scroll", Vertical)
+            # Find the loading indicator to mount before it
+            try:
+                loading = self.query_one("#loading-container")
+                await chat_scroll.mount(
+                    PendingQuery(text, self.remove_pending), before=loading
+                )
+            except Exception:
+                await chat_scroll.mount(PendingQuery(text, self.remove_pending))
+            chat_scroll.scroll_end()
+        else:
+            self._pending_queries.append(text)
+            self.run_worker(self._process_pending())
 
 
 class AdkTuiApp(App):
