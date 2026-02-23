@@ -26,6 +26,8 @@ This document provides context and guidelines for agents working on the `adk-cli
   - Thoughts: Italicized with a left border.
   - Tools: Compact, inline widgets with borders.
 
-## Memory & State
-- **Scratchpad**: Use `.adk/scratchpad.md` for persistent cross-session notes or complex task planning.
-- **Context**: The agent automatically reads `AGENTS.md`, `GEMINI.md`, and `CLAUDE.md` from the repo root to set system instructions.
+## Code Integrity & Safety
+- **Atomicity**: When performing complex multi-file modifications, consider the impact of failure. Favor reversible changes.
+- **Verification**: Always run `script/lint` and `script/test` after modifications to ensure no regressions were introduced.
+- **Ambiguity Resolution**: If a task or codebase state is ambiguous during the Discovery phase, pause and ask for clarification rather than making assumptions.
+- **Structured Edits**: Use specialized tools (like `edit_file` with exact matches) rather than overwriting whole files to minimize drift.
