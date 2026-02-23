@@ -494,6 +494,12 @@ class ChatScreen(Screen):
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
+        # Remove any existing loading indicator before mounting a new one
+        try:
+            self.query_one("#loading-container").remove()
+        except Exception:
+            pass
+
         loading_container = Horizontal(
             LoadingIndicator(),
             Label("Thinking...", id="loading-status"),
