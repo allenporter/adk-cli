@@ -16,13 +16,12 @@ from typing import Optional
 import yaml
 from google.adk.skills import Frontmatter, Resources, Skill
 
+from adk_cli.projects import find_project_root
+
 logger = logging.getLogger(__name__)
 
 # Workspace directory names to search for skills.
 SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude", ".adk"]
-
-# Files that indicate a workspace root (stop searching upward past this).
-_WORKSPACE_ROOT_MARKERS = [".git", "pyproject.toml", "package.json", "setup.py"]
 
 
 # TODO: Remove this once google-adk provides `load_skill_from_dir` natively (added in google/adk-python@223d9a7)
@@ -91,70 +90,73 @@ def discover_skills(
 ) -> list[Skill]:
     """Discover all skills from workspace directories at or above cwd.
 
-    Searches each ancestor directory (starting from cwd) for skill files
-    matching the pattern: <dir>/skills/*/SKILL.md in any of the common
-    workspace directories. Stops searching upward once a workspace root
-    marker (e.g. .git, pyproject.toml) is found.
+    Searches for skills in common workspace directories (e.g. .agents/skills/).
+    It checks:
+    1. The current working directory (cwd)
+    2. The project root (detected via find_project_root)
+    3. Every directory between cwd and project root.
 
     Args:
-        cwd: The starting directory. Defaults to the current working directory.
+        cwd: The starting directory. Defaults to current working directory.
         include_builtin: Whether to include built-in skills.
 
     Returns:
-        List of loaded Skill objects, deduplicated by skill name (first found wins).
+        List of loaded Skill objects, deduplicated by skill name.
     """
     if cwd is None:
         cwd = Path.cwd()
 
     cwd = cwd.resolve()
+    root = find_project_root(cwd)
+
     seen_names: set[str] = set()
     skills: list[Skill] = []
 
-    # Walk upward, collecting skill directories.
+    # Collect unique directories to search (from cwd up to root)
     search_dirs: list[Path] = []
     current = cwd
     while True:
         search_dirs.append(current)
-        # Stop if we've hit a workspace root.
-        for marker in _WORKSPACE_ROOT_MARKERS:
-            if (current / marker).exists():
-                # Found a root marker — include this dir but go no further.
-                current = None
-                break
-        if current is None:
+        if current == root or current.parent == current:
             break
-        parent = current.parent
-        if parent == current:
-            # Reached filesystem root.
-            break
-        current = parent
+        current = current.parent
 
-    # Search each candidate directory for SKILL.md files.
+    # Search each candidate directory for skill folders or standalone SKILL.md files
     for search_dir in search_dirs:
         for skill_dir_name in SKILL_DIRS:
+            # Pattern A: <search_dir>/<marker>/skills/<name>/SKILL.md (The "ADK" standard)
             skills_root = search_dir / skill_dir_name / "skills"
-            if not skills_root.is_dir():
-                continue
-            # Each subdirectory of skills_root is a named skill.
-            for skill_folder in sorted(skills_root.iterdir()):
-                if not skill_folder.is_dir():
-                    continue
-                skill_md = skill_folder / "SKILL.md"
-                if not skill_md.is_file():
-                    continue
-                skill = load_skill_from_dir(skill_md)
-                if skill is None:
-                    continue
-                if skill.name in seen_names:
-                    logger.debug(
-                        "Skipping duplicate skill '%s' from %s", skill.name, skill_md
-                    )
-                    continue
-                seen_names.add(skill.name)
-                skills.append(skill)
-                logger.debug("Loaded skill '%s' from %s", skill.name, skill_md)
+            if skills_root.is_dir():
+                for skill_folder in sorted(skills_root.iterdir()):
+                    if not skill_folder.is_dir():
+                        continue
+                    skill_md = skill_folder / "SKILL.md"
+                    if skill_md.is_file():
+                        skill = load_skill_from_dir(skill_md)
+                        if skill and skill.name not in seen_names:
+                            seen_names.add(skill.name)
+                            skills.append(skill)
+                            logger.debug(
+                                "Loaded skill '%s' from %s", skill.name, skill_md
+                            )
 
-    # Search for built-in skills packaged with adk-cli.
+            # Pattern B: <search_dir>/<marker>/<name>.md (Common vendor standard)
+            # This allows .agents/my-skill.md to be discovered as a skill.
+            marker_root = search_dir / skill_dir_name
+            if marker_root.is_dir():
+                for skill_file in sorted(marker_root.glob("*.md")):
+                    # Avoid reading top-level instruction files as skills here
+                    if skill_file.name in {"AGENTS.md", "GEMINI.md", "CLAUDE.md"}:
+                        continue
+                    skill = load_skill_from_dir(skill_file)
+                    if skill and skill.name not in seen_names:
+                        seen_names.add(skill.name)
+                        skills.append(skill)
+                        logger.debug(
+                            "Loaded skill '%s' from %s", skill.name, skill_file
+                        )
+
+    # Search for built-in skills
     if include_builtin:
         builtin_dir = Path(__file__).parent / "skills" / "builtin"
         if builtin_dir.is_dir():

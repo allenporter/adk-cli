@@ -15,18 +15,32 @@ from adk_cli.settings import get_global_adk_dir
 logger = logging.getLogger(__name__)
 
 PROJECTS_FILE = "projects.json"
-WORKSPACE_MARKERS = {".git", "pyproject.toml", "package.json", "setup.py", ".adk"}
+WORKSPACE_MARKERS = {
+    ".git",
+    "pyproject.toml",
+    "package.json",
+    "setup.py",
+}
 
 
 def find_project_root(start_path: Optional[Path] = None) -> Path:
     """
     Search upwards from start_path to find a project root marker.
+    Prioritizes .git as the strongest indicator of a repo root.
     Returns start_path (resolved) if no marker is found.
     """
     current = (start_path or Path.cwd()).resolve()
+
+    # Priority 1: Check for .git specifically to find the repo root
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent
+
+    # Priority 2: Check for other common markers
     for parent in [current, *current.parents]:
         if any((parent / marker).exists() for marker in WORKSPACE_MARKERS):
             return parent
+
     return current
 
 

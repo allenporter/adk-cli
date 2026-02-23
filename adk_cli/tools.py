@@ -288,29 +288,42 @@ def _get_agent_metadata(agent_name: str) -> dict[str, Any]:
     """Helper to load a specialized agent metadata from its Markdown file."""
     from pathlib import Path
     import yaml
+    from adk_cli.projects import find_project_root
 
-    # Try finding the artifact in the feature-dev builtin skill first
-    builtin_agent_path = (
+    project_root = find_project_root()
+
+    # 1. Search in various logical locations
+    search_paths = [
+        # Built-in agents
         Path(__file__).parent
         / "skills"
         / "builtin"
         / "feature-dev"
         / "agents"
-        / f"{agent_name}.md"
-    )
+        / f"{agent_name}.md",
+        # Local workspace agents
+        Path.cwd() / "agents" / f"{agent_name}.md",
+        Path.cwd() / ".adk" / "agents" / f"{agent_name}.md",
+        Path.cwd() / ".agents" / f"{agent_name}.md",
+        # Project root agents (for monorepos)
+        project_root / "agents" / f"{agent_name}.md",
+        project_root / ".adk" / "agents" / f"{agent_name}.md",
+        project_root / ".agents" / f"{agent_name}.md",
+    ]
 
-    if builtin_agent_path.is_file():
-        try:
-            content = builtin_agent_path.read_text(encoding="utf-8")
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    metadata = yaml.safe_load(parts[1])
-                    metadata["instruction"] = parts[2].strip()
-                    return metadata
-            return {"instruction": content.strip()}
-        except Exception:
-            pass
+    for agent_path in search_paths:
+        if agent_path.is_file():
+            try:
+                content = agent_path.read_text(encoding="utf-8")
+                if content.startswith("---"):
+                    parts = content.split("---", 2)
+                    if len(parts) >= 3:
+                        metadata = yaml.safe_load(parts[1])
+                        metadata["instruction"] = parts[2].strip()
+                        return metadata
+                return {"instruction": content.strip()}
+            except Exception:
+                continue
 
     return {}
 
@@ -360,9 +373,15 @@ async def _run_subagent_task(
                 for part in event.content.parts:
                     if part.thought:
                         status_manager.update(f"💭 [dim]{agent_name}[/dim] thinking...")
+                    if part.text:
+                        # Stream the actual text for transparency
+                        status_manager.update(
+                            f"💬 [dim]{agent_name}[/dim]: {part.text}"
+                        )
 
             # Use get_function_calls to be consistent with tui.py
             for call in event.get_function_calls():
+                # Stream the specific tool being called
                 status_manager.update(
                     f"🛠️ [dim]{agent_name}[/dim] calling {call.name}..."
                 )

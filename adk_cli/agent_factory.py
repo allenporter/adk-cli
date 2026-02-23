@@ -65,10 +65,32 @@ def build_adk_agent(
     # Ensure agent_name is a valid identifier (alphanumeric and underscores only)
     agent_name = agent_name.replace("-", "_")
 
+    project_root = find_project_root()
+
     # Defer loading of model settings
     if model is None:
-        settings = load_settings(find_project_root())
+        settings = load_settings(project_root)
         model = settings.get("default_model") or DEFAULT_MODEL
+
+    # Load project-specific instructions if available
+    project_instructions = []
+    instruction_markers = ["AGENTS.md", "GEMINI.md", "CLAUDE.md"]
+    for marker in instruction_markers:
+        marker_path = project_root / marker
+        if marker_path.exists():
+            try:
+                project_instructions.append(
+                    f"\n--- From {marker} ---\n"
+                    + marker_path.read_text(encoding="utf-8")
+                )
+            except Exception as e:
+                logger.warning("Failed to read %s: %s", marker, e)
+
+    final_instruction = instruction or SUPERVISOR_INSTRUCTION
+    if project_instructions:
+        final_instruction += "\n\n## Project-Specific Instructions\n" + "\n".join(
+            project_instructions
+        )
 
     retry_options = types.HttpRetryOptions(attempts=1, http_status_codes=[])
     llm_model = AdkRetryGemini(model=model, retry_options=retry_options)
@@ -98,7 +120,7 @@ def build_adk_agent(
     # Initialize the LlmAgent directly
     return LlmAgent(
         name=agent_name,
-        instruction=instruction or SUPERVISOR_INSTRUCTION,
+        instruction=final_instruction,
         tools=tools,
         model=llm_model,
         planner=planner,
