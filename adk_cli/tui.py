@@ -2,6 +2,7 @@ import logging
 import asyncio
 import json
 from typing import Optional, Dict, Any
+from textual import on
 from textual.app import App, ComposeResult, Screen
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import (
@@ -145,6 +146,10 @@ class ThoughtMessage(Collapsible):
         self._titles = ["Thinking...", "Reasoning...", "Processing...", "Reflecting..."]
         self._title_index = 0
 
+    @on(Collapsible.Expanded)
+    def on_expanded(self) -> None:
+        self.scroll_visible()
+
     def start_streaming(self) -> None:
         self._streaming = True
         self.collapsed = False
@@ -180,6 +185,10 @@ class ToolMessage(Collapsible):
         super().__init__(self._content_widget, title=f"🛠️ {summary}")
         self.add_class("tool-container")
         self.collapsed = True  # Start collapsed as requested
+
+    @on(Collapsible.Expanded)
+    def on_expanded(self) -> None:
+        self.scroll_visible()
 
 
 class Message(Static):
@@ -274,6 +283,12 @@ class ChatScreen(Screen):
         background: transparent;
     }
 
+    .thought-container CollapsibleTitle:focus {
+        background: $accent;
+        color: $text;
+        text-style: bold;
+    }
+
     .tool-container {
         margin: 0 4;
         border: none;
@@ -295,6 +310,12 @@ class ChatScreen(Screen):
     .tool-container CollapsibleTitle:hover {
         background: transparent;
         text-style: underline;
+    }
+
+    .tool-container CollapsibleTitle:focus {
+        background: $accent;
+        color: $text;
+        text-style: bold;
     }
 
     #status-bar {
@@ -365,6 +386,10 @@ class ChatScreen(Screen):
         border-left: solid #007acc;
     }
 
+    #chat-scroll:focus {
+        border: tall $accent;
+    }
+
     #loading-container {
         height: 3;
         align: left middle;
@@ -412,9 +437,9 @@ class ChatScreen(Screen):
                     yield Label(
                         f"Session: [bold]{self.session_id}[/]", id="session-label"
                     )
-                chat_container = Container(id="chat-scroll")
-                chat_container.can_focus = True
-                with chat_container:
+                chat_scroll = Container(id="chat-scroll")
+                chat_scroll.can_focus = True
+                with chat_scroll:
                     yield Message(
                         "Welcome to **ADK CLI**! How can I help you today?\n\n"
                         "Type `/quit` or press **Ctrl+C** to exit.",
