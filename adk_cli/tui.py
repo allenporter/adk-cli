@@ -415,6 +415,12 @@ class ChatScreen(Screen):
         Binding("shift+tab", "focus_previous", "Focus Previous", show=False),
     ]
 
+    def action_focus_next(self) -> None:
+        self.app.action_focus_next()
+
+    def action_focus_previous(self) -> None:
+        self.app.action_focus_previous()
+
     def __init__(
         self,
         runner: Optional[Runner],
@@ -437,7 +443,7 @@ class ChatScreen(Screen):
                     yield Label(
                         f"Session: [bold]{self.session_id}[/]", id="session-label"
                     )
-                chat_scroll = Container(id="chat-scroll")
+                chat_scroll = Vertical(id="chat-scroll")
                 chat_scroll.can_focus = True
                 with chat_scroll:
                     yield Message(
@@ -471,7 +477,7 @@ class ChatScreen(Screen):
             if not session or not session.events:
                 return
 
-            chat_scroll = self.query_one("#chat-scroll", Container)
+            chat_scroll = self.query_one("#chat-scroll", Vertical)
 
             for event in session.events:
                 role = "user" if event.author == "user" else "agent"
@@ -508,7 +514,7 @@ class ChatScreen(Screen):
         self.app.call_from_thread(self._mount_status, msg)
 
     def _mount_status(self, msg: Message) -> None:
-        chat_scroll = self.query_one("#chat-scroll", Container)
+        chat_scroll = self.query_one("#chat-scroll", Vertical)
         chat_scroll.mount(msg)
         chat_scroll.scroll_end()
 
@@ -517,7 +523,7 @@ class ChatScreen(Screen):
             return
 
         logger.debug(f"--- [Query Processing Started] --- Query: {query}")
-        chat_scroll = self.query_one("#chat-scroll", Container)
+        chat_scroll = self.query_one("#chat-scroll", Vertical)
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
@@ -541,6 +547,8 @@ class ChatScreen(Screen):
         current_tool_message = None
         # Keep track of tool call arguments so we can summarize the results correctly
         pending_args: Dict[Optional[str], Dict[str, Any]] = {}
+
+        chat_scroll = self.query_one("#chat-scroll", Vertical)
 
         new_message = types.Content(role="user", parts=[types.Part(text=query)])
 
