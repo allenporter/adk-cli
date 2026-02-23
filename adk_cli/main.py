@@ -48,6 +48,7 @@ def setup_logging(verbose: bool) -> None:
         filemode="a",
     )
     logging.getLogger("markdown_it").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     if verbose:
         logger.info("Logging initialized at DEBUG level.")
 
@@ -178,10 +179,16 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
     project_id, session_id = asyncio.run(_get_project_context(new_sess, resume_id))
 
     if is_print:
+        from rich.console import Console
+        from rich.markdown import Markdown
+        from rich.panel import Panel
+        from rich.syntax import Syntax
+
+        console = Console()
         runner = build_runner_or_exit(ctx)
         with SessionLock(session_id):
-            click.echo(
-                f"Executing one-off query (Project: {project_id}, Session: {session_id})"
+            console.print(
+                f"[bold blue]Executing one-off query (Project: {project_id}, Session: {session_id})[/bold blue]"
             )
             logger.debug(f"Executing one-off query in print mode: {query_str}")
             new_message = types.Content(role="user", parts=[types.Part(text=query_str)])
@@ -198,10 +205,16 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                             part_text = getattr(part, "text", None)
                             if part.thought:
                                 if part_text and isinstance(part_text, str):
-                                    click.echo(f"\n[Thinking: {part_text.strip()}]")
+                                    console.print(
+                                        Panel(
+                                            part_text.strip(),
+                                            title="Thinking",
+                                            border_style="dim",
+                                        )
+                                    )
                             elif part_text and isinstance(part_text, str):
                                 if role != "user":
-                                    click.echo(part_text, nl=False)
+                                    console.print(Markdown(part_text), end="")
 
                         if part.function_response:
                             resp_data = part.function_response.response
@@ -218,7 +231,7 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                                 summary = summarize_tool_result(
                                     call_name, call_args, str(result_raw)
                                 )
-                                click.echo(f"\n✅ {summary}")
+                                console.print(f"\n✅ [green]{summary}[/green]")
                 if event.get_function_calls():
                     for call in event.get_function_calls():
                         logger.debug(
@@ -227,7 +240,8 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
 
                         # Store arguments for later result summarization
                         call_name = call.name or "unknown"
-                        pending_args[call_name] = call.args or {}
+                        call_args = call.args or {}
+                        pending_args[call_name] = call_args
 
                         if call.name == "adk_request_confirmation":
                             logger.debug(
@@ -235,10 +249,51 @@ def chat(ctx: click.Context, query: List[str], print_mode: bool) -> None:
                             )
                             continue
 
-                        summary = summarize_tool_call(call_name, call.args or {})
-                        click.echo(f"\n🛠️ {summary}")
+                        summary = summarize_tool_call(call_name, call_args)
+                        console.print(f"\n🛠️ [bold yellow]{summary}[/bold yellow]")
+
+                        # If there's code or content, show it
+                        if "content" in call_args and isinstance(
+                            call_args["content"], str
+                        ):
+                            lexer = "python"
+                            if "path" in call_args:
+                                ext = call_args["path"].split(".")[-1]
+                                if ext in ["py", "md", "sh", "json", "yml", "yaml"]:
+                                    lexer = ext
+                            syntax = Syntax(
+                                call_args["content"],
+                                lexer,
+                                theme="monokai",
+                                line_numbers=True,
+                            )
+                            console.print(syntax)
+                        elif "command" in call_args:
+                            syntax = Syntax(
+                                call_args["command"], "bash", theme="monokai"
+                            )
+                            console.print(syntax)
+                        elif "replacement_text" in call_args:
+                            # Show a mini diff-like view
+                            console.print("[dim]Search text:[/dim]")
+                            console.print(
+                                Syntax(
+                                    call_args.get("search_text", ""),
+                                    "text",
+                                    theme="monokai",
+                                )
+                            )
+                            console.print("[dim]Replacement text:[/dim]")
+                            console.print(
+                                Syntax(
+                                    call_args["replacement_text"],
+                                    "text",
+                                    theme="monokai",
+                                )
+                            )
+
         logger.debug("--- [CLI One-off query finished] ---")
-        click.echo()
+        console.print()
     else:
         runner = build_runner_or_exit(ctx)
         with SessionLock(session_id):

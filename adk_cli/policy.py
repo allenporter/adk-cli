@@ -23,6 +23,9 @@ READ_ONLY_TOOLS = {
     "read_many_files",
     "load_skill",
     "load_skill_resource",
+    "manage_todo_list",
+    "explore_codebase",
+    "review_work",
 }
 
 SAFE_BASH_COMMANDS = {
