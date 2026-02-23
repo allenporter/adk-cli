@@ -128,19 +128,42 @@ class ConfirmationModal(ModalScreen[bool]):
             self.dismiss(False)
 
 
+class ThoughtMessage(Static):
+    """A widget to display agent thoughts."""
+
+    text = reactive("")
+
+    def __init__(self, text: str):
+        super().__init__()
+        self._streaming = False
+        self.text = text
+        self.add_class("thought-message")
+
+    def start_streaming(self) -> None:
+        self._streaming = True
+
+    def finish_streaming(self) -> None:
+        self._streaming = False
+        self.update(Markdown(self.text))
+
+    def watch_text(self, old_text: str, new_text: str) -> None:
+        if self._streaming:
+            self.update(new_text)
+        else:
+            self.update(Markdown(new_text))
+
+
 class Message(Static):
     """A widget to display a chat message."""
 
     # layout=False (default) avoids an expensive full layout pass on every token.
     text = reactive("")
-    thought = reactive("")
 
-    def __init__(self, text: str, role: str, thought: str = ""):
+    def __init__(self, text: str, role: str):
         super().__init__()
         self.role = role
         self._streaming = False
         self.text = text
-        self.thought = thought
         self.add_class(role)
 
     def start_streaming(self) -> None:
@@ -160,13 +183,7 @@ class Message(Static):
             return f"🛠️  [bold]{self.text}[/bold]"
         prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
 
-        content = ""
-        if self.thought:
-            # We use a blockquote-like style for thinking
-            content += f"> [italic]{self.thought}[/italic]\n\n"
-        content += self.text
-
-        return Markdown(f"### {prefix}\n\n{content}")
+        return Markdown(f"### {prefix}\n\n{self.text}")
 
     def watch_text(self, old_text: str, new_text: str) -> None:
         """Trigger a refresh when the text changes."""
@@ -174,19 +191,7 @@ class Message(Static):
             # Skip markdown parsing while tokens are streaming in — just show
             # plain text so we avoid O(n) re-parsing on every token delta.
             prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
-            content = ""
-            if self.thought:
-                content += f"(Thinking: {self.thought})\n\n"
-            content += new_text
-            self.update(f"{prefix}\n\n{content}")
-        else:
-            self.update(self._markdown_renderable())
-
-    def watch_thought(self, old_thought: str, new_thought: str) -> None:
-        """Trigger a refresh when the thought changes."""
-        if self._streaming:
-            prefix = "🤖 Agent" if self.role == "agent" else "👤 You"
-            self.update(f"{prefix}\n\n(Thinking: {new_thought})\n\n{self.text}")
+            self.update(f"{prefix}\n\n{new_text}")
         else:
             self.update(self._markdown_renderable())
 
@@ -202,10 +207,53 @@ class ChatScreen(Screen):
         background: #121212;
     }
 
+    #main-container {
+        layout: horizontal;
+        height: 1fr;
+    }
+
+    #chat-area {
+        width: 2fr;
+        height: 1fr;
+    }
+
+    #thought-area {
+        width: 1fr;
+        height: 1fr;
+        background: #1a1a1a;
+    }
+
     #chat-scroll {
         height: 1fr;
         overflow-y: auto;
         padding: 0 1;
+        border: solid $primary;
+        border-title-color: $text;
+        border-title-align: center;
+    }
+
+    #chat-scroll:focus {
+        border: double $accent;
+    }
+
+    #thought-scroll {
+        height: 1fr;
+        overflow-y: auto;
+        padding: 0 1;
+        border: solid $primary;
+        border-title-color: $text;
+        border-title-align: center;
+    }
+
+    #thought-scroll:focus {
+        border: double $accent;
+    }
+
+    .thought-message {
+        color: #888;
+        margin: 1 0;
+        padding: 0 1;
+        border-left: solid #555;
     }
 
     #status-bar {
@@ -277,14 +325,30 @@ class ChatScreen(Screen):
         opacity: 0.9;
     }
 
+    #loading-container {
+        height: 3;
+        align: left middle;
+        margin: 1 4;
+    }
+
     LoadingIndicator {
         height: 1;
-        margin: 1 4;
+        width: auto;
         color: $primary;
+    }
+
+    #loading-status {
+        margin-left: 1;
+        color: $primary;
+        content-align: left middle;
     }
     """
 
-    BINDINGS = [Binding("ctrl+c", "app.quit", "Quit", show=False)]
+    BINDINGS = [
+        Binding("ctrl+c", "app.quit", "Quit", show=False),
+        Binding("tab", "focus_next", "Focus Next", show=False),
+        Binding("shift+tab", "focus_previous", "Focus Previous", show=False),
+    ]
 
     def __init__(
         self,
@@ -308,7 +372,10 @@ class ChatScreen(Screen):
                     yield Label(
                         f"Session: [bold]{self.session_id}[/]", id="session-label"
                     )
-                with Container(id="chat-scroll"):
+                chat_container = Container(id="chat-scroll")
+                chat_container.border_title = "💬 Chat"
+                chat_container.can_focus = True
+                with chat_container:
                     yield Message(
                         "Welcome to **ADK CLI**! How can I help you today?\n\n"
                         "Type `/quit` or press **Ctrl+C** to exit.",
@@ -320,6 +387,12 @@ class ChatScreen(Screen):
                         placeholder="Ask anything... (or /quit to exit)",
                         id="user-input",
                     )
+            with Vertical(id="thought-area"):
+                thought_container = Container(id="thought-scroll")
+                thought_container.border_title = "🧠 Agent Thoughts"
+                thought_container.can_focus = True
+                with thought_container:
+                    pass
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -341,6 +414,7 @@ class ChatScreen(Screen):
                 return
 
             chat_scroll = self.query_one("#chat-scroll", Container)
+            thought_scroll = self.query_one("#thought-scroll", Container)
 
             for event in session.events:
                 role = "user" if event.author == "user" else "agent"
@@ -358,11 +432,19 @@ class ChatScreen(Screen):
 
                 text = "".join(text_parts).strip()
                 thought = "".join(thought_parts).strip()
-                if text or thought:
-                    msg = Message(text, role=role, thought=thought)
+
+                if thought:
+                    msg = ThoughtMessage(thought)
+                    await thought_scroll.mount(msg)
+                    msg.finish_streaming()
+
+                if text:
+                    msg = Message(text, role=role)
                     await chat_scroll.mount(msg)
+                    msg.finish_streaming()
 
             chat_scroll.scroll_end()
+            thought_scroll.scroll_end()
         except Exception as e:
             logger.warning(f"Failed to load history: {e}")
 
@@ -386,15 +468,21 @@ class ChatScreen(Screen):
 
         logger.debug(f"--- [Query Processing Started] --- Query: {query}")
         chat_scroll = self.query_one("#chat-scroll", Container)
+        thought_scroll = self.query_one("#thought-scroll", Container)
         await chat_scroll.mount(Message(query, role="user"))
         chat_scroll.scroll_end()
 
-        indicator = LoadingIndicator()
-        await chat_scroll.mount(indicator)
+        loading_container = Horizontal(
+            LoadingIndicator(),
+            Label("Thinking...", id="loading-status"),
+            id="loading-container",
+        )
+        await chat_scroll.mount(loading_container)
         chat_scroll.scroll_end()
 
         # Input text content specifically from the agent/model
         current_agent_message = None
+        current_thought_message = None
         # Keep track of tool call arguments so we can summarize the results correctly
         pending_args: Dict[Optional[str], Dict[str, Any]] = {}
 
@@ -429,20 +517,39 @@ class ChatScreen(Screen):
                                 )
                                 continue
 
-                            if current_agent_message is None:
-                                logger.debug("Initializing new agent message bubble")
-                                current_agent_message = Message("", role="agent")
-                                current_agent_message.start_streaming()
-                                # Mount before the indicator to keep indicator at the bottom
-                                await chat_scroll.mount(
-                                    current_agent_message, before=indicator
-                                )
-
                             if part_thought:
+                                if current_thought_message is None:
+                                    logger.debug(
+                                        "Initializing new thought message bubble"
+                                    )
+                                    current_thought_message = ThoughtMessage("")
+                                    current_thought_message.start_streaming()
+                                    await thought_scroll.mount(current_thought_message)
+
                                 if part_text and isinstance(part_text, str):
-                                    current_agent_message.thought += part_text
+                                    current_thought_message.text += part_text
+                                    thought_scroll.scroll_end()
+
+                                loading_container.query_one(
+                                    "#loading-status", Label
+                                ).update("Reasoning...")
+
                             elif part_text and isinstance(part_text, str):
+                                if current_agent_message is None:
+                                    logger.debug(
+                                        "Initializing new agent message bubble"
+                                    )
+                                    current_agent_message = Message("", role="agent")
+                                    current_agent_message.start_streaming()
+                                    # Mount before the indicator to keep indicator at the bottom
+                                    await chat_scroll.mount(
+                                        current_agent_message, before=loading_container
+                                    )
+
                                 current_agent_message.text += part_text
+                                loading_container.query_one(
+                                    "#loading-status", Label
+                                ).update("Typing...")
 
                         if part.function_response:
                             # We show a clean summary of what the tool achieved.
@@ -463,9 +570,12 @@ class ChatScreen(Screen):
 
                                 await chat_scroll.mount(
                                     Message(f"✅ {summary}", role="status"),
-                                    before=indicator,
+                                    before=loading_container,
                                 )
                                 chat_scroll.scroll_end()
+                                loading_container.query_one(
+                                    "#loading-status", Label
+                                ).update("Processing results...")
                     # Scroll once per event, not per individual text part.
                     if current_agent_message is not None:
                         chat_scroll.scroll_end()
@@ -487,6 +597,10 @@ class ChatScreen(Screen):
                         call_name = call.name or "unknown"
                         pending_args[call_name] = call.args or {}
 
+                        loading_container.query_one("#loading-status", Label).update(
+                            f"Running {call_name}..."
+                        )
+
                         # ADK emits an internal confirmation function call when
                         # tool_context.request_confirmation() is used. Since the
                         # ConfirmationModal already provides the UI for this interaction,
@@ -504,7 +618,7 @@ class ChatScreen(Screen):
                         )
 
                         await chat_scroll.mount(
-                            Message(display_name, role="tool"), before=indicator
+                            Message(display_name, role="tool"), before=loading_container
                         )
                         chat_scroll.scroll_end()
 
@@ -512,16 +626,19 @@ class ChatScreen(Screen):
             # Finalise the last agent message bubble with a proper markdown render.
             if current_agent_message is not None:
                 current_agent_message.finish_streaming()
+            if current_thought_message is not None:
+                current_thought_message.finish_streaming()
             # Final scroll to ensure everything is visible after all mount events settle
             chat_scroll.scroll_end()
+            thought_scroll.scroll_end()
         except Exception as e:
             logger.exception("Error during runner execution:")
             await chat_scroll.mount(
-                Message(f"❌ Error: {str(e)}", role="agent"), before=indicator
+                Message(f"❌ Error: {str(e)}", role="agent"), before=loading_container
             )
             chat_scroll.scroll_end()
         finally:
-            await indicator.remove()
+            await loading_container.remove()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -595,7 +712,17 @@ class AdkTuiApp(App):
         self.push_screen(
             ConfirmationModal(hint, tool_name, tool_args), callback=future.set_result
         )
-        return await future
+        result = await future
+        # Give the event loop a chance to process the dismissal and update the UI
+        # before any heavy synchronous tool execution starts.
+        await asyncio.sleep(0.1)
+
+        if result:
+            self.show_status_update(f"✅ Approved execution of {tool_name or 'action'}")
+        else:
+            self.show_status_update(f"❌ Denied execution of {tool_name or 'action'}")
+
+        return result
 
     async def on_shutdown(self) -> None:
         """Perform cleanup actions before the application exits."""
