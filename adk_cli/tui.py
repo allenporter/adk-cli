@@ -18,6 +18,7 @@ from textual.widgets import (
 )
 from textual.binding import Binding
 from textual.reactive import reactive
+from rich.markup import escape
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
@@ -25,6 +26,7 @@ from google.genai import types
 
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.status import status_manager
+from adk_cli.models import ConfirmationResult
 from adk_cli.summarize import (
     summarize_tool_call,
     summarize_tool_call_args,
@@ -54,10 +56,11 @@ class InlineConfirmation(Static):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="confirmation-container"):
-            yield Label(f"  {self.hint}", classes="confirmation-hint")
+            yield Label(f"  {escape(self.hint)}", classes="confirmation-hint")
             with RadioSet(id="confirmation-choice"):
-                yield RadioButton("Approve", id="radio-approve", value=True)
-                yield RadioButton("Deny", id="radio-deny")
+                yield RadioButton("Approve", id="radio-approve")
+                yield RadioButton("Approve for Session", id="radio-approve-session")
+                yield RadioButton("Deny", id="radio-deny", value=True)
             yield Button("Confirm", variant="primary", id="confirm-button")
 
     @on(RadioSet.Changed)
@@ -71,8 +74,14 @@ class InlineConfirmation(Static):
 
         if event.button.id == "confirm-button":
             radio_set = self.query_one("#confirmation-choice", RadioSet)
-            # Find which one is selected
-            result = radio_set.pressed_index == 0  # "Approve" is index 0
+            # 0: Approve, 1: Session, 2: Deny
+            idx = radio_set.pressed_index
+            if idx == 0:
+                result = ConfirmationResult.APPROVED_ONCE
+            elif idx == 1:
+                result = ConfirmationResult.APPROVED_SESSION
+            else:
+                result = ConfirmationResult.DENIED
             self._resolve(result)
 
     def on_key(self, event: Any) -> None:
@@ -80,11 +89,13 @@ class InlineConfirmation(Static):
         if self._resolved:
             return
         if event.key == "y":
-            self._resolve(True)
+            self._resolve(ConfirmationResult.APPROVED_ONCE)
+        elif event.key == "s":
+            self._resolve(ConfirmationResult.APPROVED_SESSION)
         elif event.key == "n":
-            self._resolve(False)
+            self._resolve(ConfirmationResult.DENIED)
 
-    def _resolve(self, result: bool) -> None:
+    def _resolve(self, result: ConfirmationResult) -> None:
         self._resolved = True
         if self.future and not self.future.done():
             self.future.set_result(result)
@@ -92,7 +103,13 @@ class InlineConfirmation(Static):
         # Update UI to reflect the choice
         self.remove_class("active")
         self.add_class("resolved")
-        status = "✅ Approved" if result else "❌ Denied"
+
+        if result == ConfirmationResult.APPROVED_ONCE:
+            status = "✅ Approved (once)"
+        elif result == ConfirmationResult.APPROVED_SESSION:
+            status = "♾️ Approved for session"
+        else:
+            status = "❌ Denied"
 
         # Remove the interaction elements
         try:
@@ -101,7 +118,9 @@ class InlineConfirmation(Static):
         except Exception:
             pass
 
-        self.query_one(".confirmation-hint", Label).update(f"{status}: {self.hint}")
+        self.query_one(".confirmation-hint", Label).update(
+            f"{status}: {escape(self.hint)}"
+        )
 
 
 class ThoughtMessage(Collapsible):
@@ -1023,12 +1042,12 @@ class AdkTuiApp(App):
         hint: str,
         tool_name: Optional[str] = None,
         tool_args: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    ) -> ConfirmationResult:
         """
         Displays an inline widget to ask for user confirmation.
         """
         if not isinstance(self.screen, ChatScreen):
-            return False
+            return ConfirmationResult.DENIED
 
         # Hide loading indicator while confirming
         loading_container = None

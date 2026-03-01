@@ -1,5 +1,6 @@
 from typing import Optional, Callable, Awaitable, Any, Dict
 import json
+from adk_cli.models import ConfirmationResult
 
 
 class ConfirmationManager:
@@ -8,7 +9,8 @@ class ConfirmationManager:
     def __init__(self):
         self._request_callback: Optional[
             Callable[
-                [str, str, Optional[str], Optional[Dict[str, Any]]], Awaitable[bool]
+                [str, str, Optional[str], Optional[Dict[str, Any]]],
+                Awaitable[ConfirmationResult],
             ]
         ] = None
 
@@ -20,7 +22,8 @@ class ConfirmationManager:
     def register_callback(
         self,
         callback: Callable[
-            [str, str, Optional[str], Optional[Dict[str, Any]]], Awaitable[bool]
+            [str, str, Optional[str], Optional[Dict[str, Any]]],
+            Awaitable[ConfirmationResult],
         ],
     ):
         """Register a callback to be called when a confirmation is requested."""
@@ -31,8 +34,9 @@ class ConfirmationManager:
         hint: str,
         tool_name: Optional[str] = None,
         tool_args: Optional[Dict[str, Any]] = None,
-    ) -> bool:
+    ) -> ConfirmationResult:
         """Called by a tool or plugin to request confirmation from the user."""
+        # Returns ConfirmationResult
         # If we have a TUI callback, use it directly as it returns the result.
         if self._request_callback:
             return await self._request_callback("current", hint, tool_name, tool_args)
@@ -52,13 +56,25 @@ class ConfirmationManager:
 
                 # Use a separate thread if needed, but since we are in the runner loop,
                 # a simple blocking call is often acceptable for CLI mode.
-                return click.confirm(f"{msg}\nProceed?", default=True)
+                msg += "\n\nOptions: [y]es, [s]ession, [n]o"
+                choice = click.prompt(
+                    f"{msg}\nProceed?",
+                    type=click.Choice(["y", "s", "n"], case_sensitive=False),
+                    default="y",
+                )
+
+                if choice == "y":
+                    return ConfirmationResult.APPROVED_ONCE
+                elif choice == "s":
+                    return ConfirmationResult.APPROVED_SESSION
+                else:
+                    return ConfirmationResult.DENIED
             except ImportError:
                 pass
 
         # If we reach here, we have no interactive way to ask.
         # This will result in an error in the runner, which is what we want.
-        return False
+        return ConfirmationResult.DENIED
 
 
 # Global singleton

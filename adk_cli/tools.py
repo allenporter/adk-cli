@@ -23,14 +23,40 @@ Future Guidance:
 import os
 import subprocess
 import asyncio
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Dict
 
 from adk_cli.status import status_manager
+from adk_cli.models import ToolPolicy, ToolMetadata
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
 
 
+def tool_metadata(
+    policy: ToolPolicy,
+    summary_template: str,
+    conditional_check: Optional[Callable[[Dict[str, Any]], bool]] = None,
+):
+    """
+    Decorator to attach security and summary metadata to a tool function.
+    """
+
+    def decorator(func: Callable):
+        setattr(
+            func,
+            "_adk_tool_metadata",
+            ToolMetadata(
+                policy=policy,
+                summary_template=summary_template,
+                conditional_check=conditional_check,
+            ),
+        )
+        return func
+
+    return decorator
+
+
+@tool_metadata(ToolPolicy.READ_ONLY, "Listing {directory}")
 async def ls(directory: str = ".", show_hidden: bool = False) -> str:
     """
     Lists the files and directories in the specified path.
@@ -55,6 +81,7 @@ async def ls(directory: str = ".", show_hidden: bool = False) -> str:
         return f"Error listing directory: {str(e)}"
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Reading {path}")
 async def cat(path: str, start_line: int = 1, end_line: int | None = None) -> str:
     """
     Reads and returns the content of the file at the specified path.
@@ -109,6 +136,7 @@ async def cat(path: str, start_line: int = 1, end_line: int | None = None) -> st
         return f"Error reading file: {str(e)}"
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Reading {paths}")
 async def read_many_files(paths: list[str]) -> str:
     """
     Reads multiple files and returns their contents in a structured format.
@@ -120,6 +148,7 @@ async def read_many_files(paths: list[str]) -> str:
     return "\n".join(results)
 
 
+@tool_metadata(ToolPolicy.SENSITIVE, "Writing {path}")
 async def write_file(path: str, content: str) -> str:
     """
     Creates or overwrites a file at the specified path with the given content.
@@ -139,6 +168,7 @@ async def write_file(path: str, content: str) -> str:
         return f"Error writing file: {str(e)}"
 
 
+@tool_metadata(ToolPolicy.SENSITIVE, "Editing {path}")
 async def edit_file(path: str, search_text: str, replacement_text: str) -> str:
     """
     Replaces a specific, unique block of text in a file with new content.
@@ -185,6 +215,7 @@ async def edit_file(path: str, search_text: str, replacement_text: str) -> str:
         return f"Error editing file: {str(e)}"
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Searching for {pattern} in {directory}")
 async def grep(
     pattern: str, directory: str = ".", recursive: bool = True, context_lines: int = 0
 ) -> str:
@@ -246,6 +277,26 @@ async def grep(
         return f"Error running grep: {str(e)}"
 
 
+def _is_safe_bash(args: Dict[str, Any]) -> bool:
+    """
+    Checks if a bash command is in the pre-approved safe list.
+
+    CUSTOMIZATION POINT:
+    To update the session-wide granular logic for 'bash', see
+    `CustomPolicyEngine.allow_for_session` and `_is_session_allowed`
+    in `adk_cli/policy.py`.
+    """
+    from adk_cli.policy import SAFE_BASH_COMMANDS
+
+    cmd = args.get("command", "").strip()
+    return cmd in SAFE_BASH_COMMANDS
+
+
+@tool_metadata(
+    ToolPolicy.CONDITIONAL,
+    "Executing bash command: {command}",
+    conditional_check=_is_safe_bash,
+)
 async def bash(command: str, cwd: str = ".") -> str:
     """
     Executes a shell command and returns the combined stdout and stderr.
@@ -395,6 +446,7 @@ async def _run_subagent_task(
         return f"Error in subagent: {str(e)}"
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Exploring codebase for: {task}")
 async def explore_codebase(task: str) -> str:
     """
     Spawns a specialized Discovery Agent to map out the architecture or find
@@ -418,6 +470,7 @@ async def explore_codebase(task: str) -> str:
     )
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Reviewing work against: {original_goal}")
 async def review_work(original_goal: str) -> str:
     """
     Spawns a specialized Code Reviewer to audit the current state of the
@@ -441,6 +494,7 @@ async def review_work(original_goal: str) -> str:
     )
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Designing architecture for: {task}")
 async def design_architecture(task: str) -> str:
     """
     Spawns a specialized Architecture Agent to design implementation blueprints.
@@ -461,6 +515,7 @@ async def design_architecture(task: str) -> str:
     )
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Updating todo list")
 async def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     """
     Update the session's structured todo list to track progress and plan tasks.
@@ -491,6 +546,7 @@ async def manage_todo_list(todo_list: list[dict[str, Any]]) -> str:
     return "Todo list updated:\n" + "\n".join(formatted)
 
 
+@tool_metadata(ToolPolicy.READ_ONLY, "Running sub-agent: {agent_name}")
 async def run_subagent(task: str, agent_name: str = "adk_subagent") -> str:
     """
     Spawns a specialized sub-agent to handle a specific task.

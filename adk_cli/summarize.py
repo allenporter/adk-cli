@@ -1,15 +1,31 @@
 import os
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 from rich.markup import escape
+from google.adk.tools.base_tool import BaseTool
 
 
-def summarize_tool_call(name: str, args: Dict[str, Any]) -> str:
+def summarize_tool_call(
+    name: str, args: Dict[str, Any], tool: Optional[BaseTool] = None
+) -> str:
     """
     Generate a human-readable summary of what a tool is about to do.
     """
+    # 1. Try to use tool metadata if available
+    if tool and hasattr(tool, "callable") and tool.callable:
+        metadata = getattr(tool.callable, "_adk_tool_metadata", None)
+        if metadata and metadata.summary_template:
+            try:
+                # Sanitize args for formatting (escape rich markup)
+                clean_args = {k: escape(str(v)) for k, v in args.items()}
+                return metadata.summary_template.format(**clean_args)
+            except (KeyError, IndexError):
+                # Fallback to hardcoded or generic if template formatting fails
+                pass
+
+    # 2. Hardcoded fallbacks
     if name == "cat":
         path = args.get("path", "unknown file")
         start = args.get("start_line", 1)

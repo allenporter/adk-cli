@@ -7,8 +7,10 @@ from google.adk.tools.tool_context import ToolContext
 
 from adk_cli.confirmation import confirmation_manager
 from adk_cli.summarize import summarize_tool_call
+from adk_cli.models import ToolPolicy, ConfirmationResult
 
 # Tools that are considered safe and don't require confirmation in 'ask' mode
+# Deprecated: use @tool_metadata(ToolPolicy.READ_ONLY, ...) instead
 READ_ONLY_TOOLS = {
     "ls",
     "list_dir",
@@ -66,7 +68,10 @@ class BasePolicyEngine:
     """Base class for policy evaluation."""
 
     async def evaluate(
-        self, tool_name: str, tool_args: Dict[str, Any]
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        tool: Optional[BaseTool] = None,
     ) -> PolicyCheckResult:
         return PolicyCheckResult(outcome=PolicyOutcome.ALLOW, reason="Default allow")
 
@@ -79,6 +84,7 @@ class CustomPolicyEngine(BasePolicyEngine):
 
     def __init__(self, mode: PermissionMode = PermissionMode.ASK):
         self.mode = mode
+        self._session_permissions: Dict[str, set] = {}
 
     def _format_reason(
         self, prefix: str, tool_name: str, tool_args: Dict[str, Any]
@@ -86,17 +92,90 @@ class CustomPolicyEngine(BasePolicyEngine):
         summary = summarize_tool_call(tool_name, tool_args)
         return f"{prefix}: {summary}"
 
+    def allow_for_session(self, tool_name: str, tool_args: Dict[str, Any]):
+        """
+        Grant session-wide permission for a tool with optional granular arguments.
+
+        CUSTOMIZATION POINT:
+        To add new granular permission logic for a specific tool:
+        1. Add an `elif tool_name == "your_tool":` block here to extract
+           the identifying attribute (e.g., path, command, etc.)
+        2. Ensure the same attribute is checked in `_is_session_allowed`.
+        """
+        if tool_name not in self._session_permissions:
+            self._session_permissions[tool_name] = set()
+
+        # Specific granular permissions based on tool type
+        if tool_name == "bash":
+            cmd = tool_args.get("command", "").strip()
+            if cmd:
+                self._session_permissions[tool_name].add(cmd)
+        elif tool_name in ["edit_file", "write_file", "cat"]:
+            path = tool_args.get("path")
+            if path:
+                self._session_permissions[tool_name].add(path)
+        else:
+            # Generic 'allow all for this tool'
+            self._session_permissions[tool_name].add("*")
+
+    def _is_session_allowed(self, tool_name: str, tool_args: Dict[str, Any]) -> bool:
+        """
+        Check if a tool call is already allowed for this session.
+
+        CUSTOMIZATION POINT:
+        When adding granular logic to `allow_for_session`, you must
+        also update this method to correctly check the identifier.
+        """
+        if tool_name not in self._session_permissions:
+            return False
+
+        allowed_items = self._session_permissions[tool_name]
+        if "*" in allowed_items:
+            return True
+
+        if tool_name == "bash":
+            cmd = tool_args.get("command", "").strip()
+            return cmd in allowed_items
+
+        if tool_name in ["edit_file", "write_file", "cat"]:
+            path = tool_args.get("path")
+            return path in allowed_items
+
+        return False
+
     async def evaluate(
-        self, tool_name: str, tool_args: Dict[str, Any]
+        self, tool_name: str, tool_args: Dict[str, Any], tool: Optional[BaseTool] = None
     ) -> PolicyCheckResult:
         if self.mode == PermissionMode.AUTO:
             return PolicyCheckResult(
                 outcome=PolicyOutcome.ALLOW, reason="Auto-approval mode"
             )
 
+        # 1. Check for metadata on the tool
+        if tool and hasattr(tool, "callable") and tool.callable:
+            metadata = getattr(tool.callable, "_adk_tool_metadata", None)
+            if metadata:
+                if metadata.policy == ToolPolicy.READ_ONLY:
+                    return PolicyCheckResult(
+                        outcome=PolicyOutcome.ALLOW, reason="Read-only operation"
+                    )
+                if metadata.policy == ToolPolicy.CONDITIONAL:
+                    if metadata.conditional_check and metadata.conditional_check(
+                        tool_args
+                    ):
+                        return PolicyCheckResult(
+                            outcome=PolicyOutcome.ALLOW, reason="Safe conditional call"
+                        )
+
+        # 2. Check deprecated hardcoded lists for backwards compatibility or tools without metadata
         if tool_name in READ_ONLY_TOOLS:
             return PolicyCheckResult(
                 outcome=PolicyOutcome.ALLOW, reason="Read-only operation"
+            )
+
+        if self._is_session_allowed(tool_name, tool_args):
+            return PolicyCheckResult(
+                outcome=PolicyOutcome.ALLOW, reason="Session-wide allowance"
             )
 
         if tool_name == "bash":
@@ -142,7 +221,7 @@ class SecurityPlugin(BasePlugin):
         if tool_context.tool_confirmation and tool_context.tool_confirmation.confirmed:
             return None
 
-        result = await self.policy_engine.evaluate(tool.name, tool_args)
+        result = await self.policy_engine.evaluate(tool.name, tool_args, tool=tool)
 
         if result.outcome == PolicyOutcome.DENY:
             return {"error": f"Policy Denied: {result.reason}"}
@@ -152,10 +231,16 @@ class SecurityPlugin(BasePlugin):
             tool_context.request_confirmation(hint=result.reason)
 
             # Let the confirmation manager handle it (it knows about current TUI/CLI)
-            approved = await confirmation_manager.request_confirmation(
+            # Response: ConfirmationResult
+            approved_result = await confirmation_manager.request_confirmation(
                 hint=result.reason, tool_name=tool.name, tool_args=tool_args
             )
-            if approved:
+
+            if approved_result != ConfirmationResult.DENIED:
+                if approved_result == ConfirmationResult.APPROVED_SESSION:
+                    # Update policy engine for session-wide allowance
+                    if isinstance(self.policy_engine, CustomPolicyEngine):
+                        self.policy_engine.allow_for_session(tool.name, tool_args)
                 return None  # Approved! Continue execution!
             else:
                 return {
