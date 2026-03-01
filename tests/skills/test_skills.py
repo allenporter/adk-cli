@@ -63,6 +63,15 @@ def test_load_skill_valid(workspace: Path) -> None:
     assert "Some instructions here." in skill.instructions
 
 
+def test_load_skill_normalizes_name(workspace: Path) -> None:
+    """load_skill_from_dir normalizes name with underscores to kebab-case."""
+    skill_md = _make_skill(workspace, "my_skill")
+    skill = load_skill_from_dir(skill_md)
+
+    assert skill is not None
+    assert skill.name == "my-skill"
+
+
 def test_load_skill_missing_name_returns_none(tmp_path: Path) -> None:
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("---\ndescription: Missing name.\n---\nBody.", encoding="utf-8")

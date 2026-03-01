@@ -25,6 +25,20 @@ logger = logging.getLogger(__name__)
 SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude", ".adk"]
 
 
+def _normalize_skill_name(name: str) -> str:
+    """Normalize a skill name to lowercase kebab-case.
+
+    Replaces underscores with hyphens and converts to lowercase.
+
+    Args:
+        name: The raw skill name.
+
+    Returns:
+        The normalized skill name.
+    """
+    return name.lower().replace("_", "-")
+
+
 def _load_skill_from_content(content: str, source: str) -> Optional[Skill]:
     """Load a single skill from content string.
 
@@ -59,8 +73,14 @@ def _load_skill_from_content(content: str, source: str) -> Optional[Skill]:
         )
         return None
 
+    normalized_name = _normalize_skill_name(str(name))
+    if normalized_name != name:
+        logger.debug(
+            "Normalized skill name '%s' to '%s' from %s", name, normalized_name, source
+        )
+
     frontmatter = Frontmatter(
-        name=str(name),
+        name=normalized_name,
         description=str(description),
         license=frontmatter_data.get("license"),
         compatibility=frontmatter_data.get("compatibility"),
