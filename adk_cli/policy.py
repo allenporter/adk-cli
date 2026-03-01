@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass
 from typing import Any, Optional, Dict
+from rich.text import Text
 from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
@@ -89,8 +90,10 @@ class CustomPolicyEngine(BasePolicyEngine):
     def _format_reason(
         self, prefix: str, tool_name: str, tool_args: Dict[str, Any]
     ) -> str:
+        # The reason is shown in a Label, which doesn't support Rich markup.
+        # We should use the summary but without the markup tags.
         summary = summarize_tool_call(tool_name, tool_args)
-        return f"{prefix}: {summary}"
+        return f"{prefix}: {Text.from_markup(summary).plain}"
 
     def allow_for_session(self, tool_name: str, tool_args: Dict[str, Any]):
         """

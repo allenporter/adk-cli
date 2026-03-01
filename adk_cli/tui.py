@@ -18,7 +18,8 @@ from textual.widgets import (
 )
 from textual.binding import Binding
 from textual.reactive import reactive
-from rich.markup import escape
+from rich.text import Text
+from rich.markup import escape, render
 from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.genai import types
@@ -227,9 +228,9 @@ class Message(Static):
     def _markdown_renderable(self) -> Any:
         """Build the full Markdown renderable (used once, when streaming ends)."""
         if self.role == "status":
-            return self.text
+            return render(self.text)
         if self.role == "tool":
-            return f"🛠️  {self.text}"
+            return Text.assemble("🛠️  ", render(self.text))
         prefix = "✦ Agent" if self.role == "agent" else "👤 You"
 
         return Markdown(f"### {prefix}\n\n{self.text}")
@@ -240,7 +241,10 @@ class Message(Static):
             # Skip markdown parsing while tokens are streaming in — just show
             # plain text so we avoid O(n) re-parsing on every token delta.
             prefix = "✦ Agent" if self.role == "agent" else "👤 You"
-            self.update(f"{prefix}\n\n{new_text}")
+            if self.role in ("status", "tool"):
+                self.update(render(new_text))
+            else:
+                self.update(f"{prefix}\n\n{new_text}")
         else:
             self.update(self._markdown_renderable())
 
