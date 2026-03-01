@@ -8,7 +8,7 @@ from adk_cli.tools import _get_agent_metadata
 def test_builtin_skill_exists():
     """Verify the feature-dev skill exists in the builtin directory."""
     skill_path = (
-        Path(__file__).parent.parent
+        Path(__file__).parent.parent.parent
         / "adk_cli"
         / "skills"
         / "builtin"
