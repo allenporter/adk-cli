@@ -43,6 +43,9 @@ Source = "https://github.com/allenporter/adk_cli"
 [tool.setuptools.packages.find]
 include = ["adk_cli*"]
 
+[tool.setuptools.package-data]
+"adk_cli.skills.builtin" = ["**/*"]
+
 
 
 [tool.pytest.ini_options]

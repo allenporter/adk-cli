@@ -10,6 +10,7 @@ Each SKILL.md must have YAML frontmatter with at minimum `name` and
 from __future__ import annotations
 
 import logging
+import importlib.resources
 from pathlib import Path
 from typing import Optional
 
@@ -24,22 +25,16 @@ logger = logging.getLogger(__name__)
 SKILL_DIRS = [".agent", ".agents", ".gemini", ".claude", ".adk"]
 
 
-# TODO: Remove this once google-adk provides `load_skill_from_dir` natively (added in google/adk-python@223d9a7)
-def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
-    """Load a single skill from a SKILL.md file.
+def _load_skill_from_content(content: str, source: str) -> Optional[Skill]:
+    """Load a single skill from content string.
 
     Args:
-        skill_md_path: Absolute path to a SKILL.md file.
+        content: The content of the SKILL.md file.
+        source: A description of the source for logging (e.g., path).
 
     Returns:
-        A Skill object if the file is valid, or None if it cannot be parsed.
+        A Skill object if the content is valid, or None if it cannot be parsed.
     """
-    try:
-        content = skill_md_path.read_text(encoding="utf-8")
-    except OSError as e:
-        logger.warning("Could not read skill file %s: %s", skill_md_path, e)
-        return None
-
     # Parse YAML frontmatter between --- delimiters.
     frontmatter_data: dict = {}
     instructions = content
@@ -51,9 +46,7 @@ def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
                 frontmatter_data = yaml.safe_load(parts[1]) or {}
                 instructions = parts[2].strip()
             except yaml.YAMLError as e:
-                logger.warning(
-                    "Could not parse frontmatter in %s: %s", skill_md_path, e
-                )
+                logger.warning("Could not parse frontmatter in %s: %s", source, e)
                 return None
 
     name = frontmatter_data.get("name")
@@ -62,7 +55,7 @@ def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
     if not name or not description:
         logger.warning(
             "Skill at %s is missing required 'name' or 'description' in frontmatter",
-            skill_md_path,
+            source,
         )
         return None
 
@@ -83,6 +76,25 @@ def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
     return Skill(
         frontmatter=frontmatter, instructions=instructions, resources=Resources()
     )
+
+
+# TODO: Remove this once google-adk provides `load_skill_from_dir` natively (added in google/adk-python@223d9a7)
+def load_skill_from_dir(skill_md_path: Path) -> Optional[Skill]:
+    """Load a single skill from a SKILL.md file.
+
+    Args:
+        skill_md_path: Absolute path to a SKILL.md file.
+
+    Returns:
+        A Skill object if the file is valid, or None if it cannot be parsed.
+    """
+    try:
+        content = skill_md_path.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning("Could not read skill file %s: %s", skill_md_path, e)
+        return None
+
+    return _load_skill_from_content(content, str(skill_md_path))
 
 
 def discover_skills(
@@ -158,26 +170,33 @@ def discover_skills(
 
     # Search for built-in skills
     if include_builtin:
-        builtin_dir = Path(__file__).parent / "skills" / "builtin"
-        if builtin_dir.is_dir():
-            for skill_folder in sorted(builtin_dir.iterdir()):
-                if not skill_folder.is_dir():
+        try:
+            builtin_skills_path = importlib.resources.files("adk_cli.skills.builtin")
+            for skill_folder_path in sorted(builtin_skills_path.iterdir()):
+                if not skill_folder_path.is_dir():
                     continue
-                skill_md = skill_folder / "SKILL.md"
-                if not skill_md.is_file():
+                skill_md_path = skill_folder_path / "SKILL.md"
+                if not skill_md_path.is_file():
                     continue
-                skill = load_skill_from_dir(skill_md)
+
+                content = skill_md_path.read_text(encoding="utf-8")
+                skill = _load_skill_from_content(content, str(skill_md_path))
+
                 if skill is None:
                     continue
                 if skill.name in seen_names:
                     logger.debug(
                         "Skipping duplicate built-in skill '%s' from %s",
                         skill.name,
-                        skill_md,
+                        skill_md_path,
                     )
                     continue
                 seen_names.add(skill.name)
                 skills.append(skill)
-                logger.debug("Loaded built-in skill '%s' from %s", skill.name, skill_md)
+                logger.debug(
+                    "Loaded built-in skill '%s' from %s", skill.name, skill_md_path
+                )
+        except (ImportError, FileNotFoundError) as e:
+            logger.warning("Could not load built-in skills: %s", e)
 
     return skills
