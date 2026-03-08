@@ -8,7 +8,7 @@
       "email": "allen.porter@gmail.com",
       "github_username": "allenporter",
       "project_name": "adk_coder",
-      "description": "Project short description.",
+      "description": "AI coding agent powered by Google ADK — multi-agent orchestration, filesystem tools, and persistent sessions",
       "version": "0.0.1",
       "_template": "http://github.com/allenporter/cookiecutter-python"
     }
