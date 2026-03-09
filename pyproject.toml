@@ -4,7 +4,7 @@ requires = ["setuptools>=77.0"]
 
 [project]
 name = "adk_coder"
-version = "0.1.2"
+version = "0.1.3"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 description = "AI coding agent powered by Google ADK — multi-agent orchestration, filesystem tools, and persistent sessions"
