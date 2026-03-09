@@ -156,6 +156,10 @@ def build_adk_agent(
 
 def build_runner(
     model: str | None = None,
+    instruction: str | None = None,
+    tool_names: list[str] | None = None,
+    include_skills: bool = True,
+    agent_name: str = "adk_coder_agent",
     permission_mode: str = "ask",
     workspace_path: Path | None = None,
     extra_tools: list[BaseTool | BaseToolset] | None = None,
@@ -170,7 +174,13 @@ def build_runner(
             ``build_adk_agent()`` for project root and skill discovery.
     """
     agent = build_adk_agent(
-        model, workspace_path=workspace_path, extra_tools=extra_tools
+        model=model,
+        instruction=instruction,
+        tool_names=tool_names,
+        include_skills=include_skills,
+        agent_name=agent_name,
+        workspace_path=workspace_path,
+        extra_tools=extra_tools,
     )
     mode = PermissionMode(permission_mode)
 

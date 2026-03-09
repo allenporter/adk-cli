@@ -70,7 +70,13 @@ def test_build_runner_passes_model_through(
     build_runner(model="gemini-2.0-flash")
 
     mock_build_agent.assert_called_once_with(
-        "gemini-2.0-flash", workspace_path=None, extra_tools=None
+        model="gemini-2.0-flash",
+        instruction=None,
+        tool_names=None,
+        include_skills=True,
+        agent_name="adk_coder_agent",
+        workspace_path=None,
+        extra_tools=None,
     )
 
 
@@ -127,7 +133,15 @@ def test_build_runner_passes_workspace_path(
 
     build_runner(workspace_path=ws)
 
-    mock_build_agent.assert_called_once_with(None, workspace_path=ws, extra_tools=None)
+    mock_build_agent.assert_called_once_with(
+        model=None,
+        instruction=None,
+        tool_names=None,
+        include_skills=True,
+        agent_name="adk_coder_agent",
+        workspace_path=ws,
+        extra_tools=None,
+    )
 
 
 @patch("adk_coder.agent_factory.LlmAgent")
